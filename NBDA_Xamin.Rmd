@@ -1,0 +1,134 @@
+---
+title: "Network Based Data Analysis Project"
+author: "Annalisa Xamin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+# knitr::opts_chunk$set(cache = TRUE)
+```
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install and load R packages
+```{r packages, warning=FALSE, results='hide', message=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("recount3")
+BiocManager::install("GEOquery") 
+BiocManager::install("rScudo")
+
+library("recount3")
+library("tidyverse")
+library("dplyr")
+#library("GEOquery") #not used
+library("rScudo")
+library("sessioninfo")
+```
+
+# R session information
+```{r session info}
+print('Reproducibility information:') 
+Sys.time()
+proc.time()
+options(width = 120)
+session_info()
+```
+
+# Data selection
+Load the dataset from recount3
+```{r load dataset}
+# Load the dataset from recount3
+SLEdata <- recount3::create_rse_manual(
+  project = "SRP062966",
+  project_home = "data_sources/sra",
+  organism = "human",
+  annotation = "gencode_v26",
+  type = "gene"
+)
+
+# Convert the dataset into a dataframe
+df_SLE <- as.data.frame(assay(SLEdata))
+
+# To be able to access the data while offline
+# write.csv(df_SLE, file = "dataset.csv")
+# df_SLE <- read.csv("dataset.csv", row.names=1)
+
+dim(df_SLE) # 117 columns and 63856 rows
+# colnames(df_SLE) # samples
+# rownames(df_SLE) # genes
+```
+
+Extract information from the recount3 dataset
+```{r}
+# I check if the samples are paired end
+SLE_meta <- read_metadata(
+    metadata_files = file_retrieve(
+        locate_url(
+            "SRP062966",
+            "data_sources/sra",
+        )
+    )
+)
+
+is_paired_end(SLE_meta)
+# our samples are not paired end
+# Look at the information stored into metadata files
+# colnames(SLE_meta)
+
+# Get information about the genes
+info_genes   <- as.data.frame(rowData(SLEdata)) %>%
+                dplyr::select(one_of(
+                  "bp_length", 
+                  "gene_type", 
+                  "gene_name")
+                  )
+# head(info_genes) # rows are the genes, while the columns contain genes' information 
+
+# Get information about the samples
+info_samples <- as.data.frame(colData(SLEdata)) %>% 
+                dplyr::select(., sra.sample_attributes) %>%
+                separate(
+                  col=sra.sample_attributes, 
+                  into=c("ebv", "hist", "msi", "X", "subject_id", "tissue"),
+                  sep="\\|",
+                ) %>%
+                mutate_each(function(x) str_replace(x, ".*;;", "")) %>%
+                dplyr::select(-"X")
+
+# head(info_samples) # rows are the samples, while the columns contains samples' information
+
+# Since we only have NAs in the tissue column, I remove 'tissue' column
+info_samples <- info_samples %>% select(-tissue)
+# head(info_samples) # check if it worked
+
+```
+
+The metadata is also available [here](https://www.refine.bio/experiments/SRP062966/sle-lupus-rna-seq).
+
+# Exploratory analysis
+Set a seed to make every random step reproducible
+```{r}
+SEED <- 1234
+```
+
+
+
+- boxplot to analyze value distributions
+```{r explore}
+boxplot()
+```
+
+
+# Pre-processing
+
+```{r}
+
+```
+
