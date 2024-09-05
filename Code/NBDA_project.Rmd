@@ -4,6 +4,7 @@ author: "Annalisa Xamin"
 output: 
   html_document:
     toc: true
+    df_print: paged
   pdf_document:
     latex_engine: xelatex
     toc: true
@@ -35,6 +36,8 @@ library(GEOquery)
 library(rScudo)
 library(plotly)
 library(sessioninfo)
+library(ggplot2)
+library(factoextra)
 ```
 
 # R session information
@@ -62,7 +65,7 @@ Note that sample numbers correspond to individual patient samples.
 
 ```{r retrieve data from GEO}
 # download the GSE20437 expression data series
-gse <- getGEO("GSE20437", destdir= './Code/data/', getGPL = F)
+gse <- getGEO("GSE20437", destdir= './data/', getGPL = F)
 ```
 
 ```{r}
@@ -121,7 +124,7 @@ ex[1:5,]
 boxplot(ex, main = 'Boxplot of the data before normalization')
 ```
 
-I try to apply a log transformation to the data to obtain a boxplot easier to read.
+The boxplot shows that scaling is necessary. So, in this case, I try to apply a log transformation to the data.
 
 ```{r boxplot log transformation, fig.cap="Boxplot of the data after applying a logarithmic transformation"}
 ex2<-log(ex)
@@ -141,13 +144,35 @@ boxplot(normalized.log.ex, main = 'Boxplot of the data after median normalizatio
 ```
 
 ## PCA
+PCA is a dimensionality reduction technique that allows to condense thousands of dimensions into just two or three. For the dataset's samples, the PCA scores display the coordinates in relation to these additional dimensions. 
 
-```{r pca, fig.cap="Variance explained by the first 10 components"}
+```{r pca}
 pca <- prcomp(t(normalized.log.ex))
-summary(pca) # get the summary of the PCA, we get a table in which each column is a principal components and we have information on the standard deviation and the variation, etc
 
-screeplot(pca) # this plot show the variance explained by the first 10 components
+#summary(pca)
+#screeplot(pca)
 ```
+
+To get the summary of the PCA and the plot showing the variance explained by the first 10 components, it is possible to use the functions commented in the chunks above.
+
+However, using `ggplot2` and `factoextra` packages is possible to get a more concise and informative plot reporting the same information.
+
+```{r variance explained by pca}
+pcaVar <- get_eig(pca)
+pcaVar <- pcaVar$variance.percent[1:10]
+screeDf <- data.frame("Dimensions" = as.factor(seq(1,10)),
+                      "Percentages" = pcaVar,
+                      "Labels" = paste(round(pcaVar, 2), "%"))
+
+p <- ggplot(data = screeDf, aes(x=Dimensions, y=Percentages))+
+  geom_bar(stat = "identity", fill = "#d1105a")+
+  geom_text(aes(label=Labels), vjust=-0.5, color="black", size=3.6)+
+  ggtitle("Scree Plot")+
+  ylab("Percentage of variance explained")+
+  scale_x_discrete(labels = as.factor(seq(1,10)))
+p
+```
+
 
 ```{r}
 # draw PCA plot
