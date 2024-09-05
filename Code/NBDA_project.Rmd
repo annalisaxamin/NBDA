@@ -173,14 +173,14 @@ p <- ggplot(data = screeDf, aes(x=Dimensions, y=Percentages))+
 p
 ```
 
+The scree plot shows that the first dimensions on the left are the more important because the percentage of variance explained by them is higher. The remaining principal components account for a very small proportion of the variability and are probably unimportant.
 
-```{r}
+```{r PCA for components 1 and 2}
 # draw PCA plot
 group <- c(rep("cadetblue1",18), rep("red",18), rep("purple",6) ) # vector of colors based on the order of my data
 plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
 text(pca$x[,1], pca$x[,2], rownames(pca$data), cex=0.75)
 ```
-
 
 The vector group used in the PCA plot is based on the data. The samples corresponding to the colors are the following:
 
