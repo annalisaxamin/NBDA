@@ -1,0 +1,230 @@
+---
+title: "Project Network-based Data Analysis"
+author: "Annalisa Xamin"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+  html_document:
+    toc: true
+always_allow_html: true
+---
+
+
+---
+
+## Install and load R packages
+
+```{r packages, warning=FALSE, results='hide', message=FALSE}
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+if (!require("GEOquery", quietly = TRUE))
+    BiocManager::install("GEOquery") 
+
+if (!require("rScudo", quietly = TRUE))
+    BiocManager::install("rScudo") 
+
+library(tidyverse)
+library(dplyr)
+library(GEOquery)
+library(rScudo)
+library(plotly)
+```
+
+# Data selection
+
+The analysis will use the dataset [GSE20437](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE20437) obtained from GEO.The dataset is generated from Affymetrix HU133A microarrays and contains 42 tissue samples. 
+
+In detail, the data includes:
+
+- 18 reduction mammoplasty (RM) breast epithelium samples, 
+
+- 18 histologically normal (HN) epithelial samples from breast cancer patients (9 ER+ and 9 ER-), and 
+
+- 6 histologically normal epithelial samples from prophylactic mastectomy patients. 
+
+Note that sample numbers correspond to individual patient samples.
+
+```{r retrieve data from GEO}
+# download the GSE20437 expression data series
+gse <- getGEO("GSE20437", destdir= './data/', getGPL = F)
+```
+
+```{r}
+# getGEO returns a list of expression objects, but...
+length(gse) 
+# shows us there is only one object in it. 
+# We assign it to the same variable.
+gse <- gse[[1]]
+```
+
+
+# Exploratory analysis
+```{r}
+# show what we have:
+show(gse)
+```
+
+The actual expression data are accessible in the `exprs` section of `gse`, an Expression Set and the generic data class that BioConductor uses for expression data.
+
+```{r inspect exprs}
+head(exprs(gse)) 
+```
+
+```{r length exprs, include = FALSE}
+length(exprs(gse))
+```
+
+To conveniently access the data rows and columns present in `exprs(gse)`, this matrix is assigned to its own variable `ex`.
+
+```{r}
+# exprs (gse) is a matrix that we can assign to its own variable, to
+# conveniently access the data rows and columns
+ex <- exprs(gse)
+dim(ex) # 42 sample, 22283 genes
+```
+
+The dataset contains gene expression data of 22283 genes (rows) from 42 patients (columns).
+
+```{r, include=FALSE}
+colnames(ex)
+```
+
+```{r, include = FALSE}
+rownames(ex)
+```
+
+```{r, include = FALSE}
+ex[1:5,]
+```
+
+## Pre-processing
+
+```{r boxplot original data, warning=FALSE}
+# Analyze value distributions
+#boxplot(ex)
+boxplot(ex, main = 'Boxplot of the data before normalization')
+```
+
+I try to apply a log transformation to the data to obtain a boxplot easier to read.
+
+```{r boxplot log transformation, fig.cap="Boxplot of the data after applying a logarithmic transformation"}
+ex2<-log(ex)
+ex2 <- na.omit(as.matrix(ex2))
+boxplot(ex2, main = 'Boxplot of the data after applying a logarithmic transformation')
+```
+
+From the boxplot after the log transformation, I can see that there is some variation in the median of the samples. So, I try to apply a median normalization to the data after the log transformation.
+
+```{r median normalization and boxplot, fig.cap="Boxplot of the data after median normalization"}
+# MEDIAN NORMALIZATION
+channel.medians=apply(log(ex),2,median)
+normalized.log.ex=sweep(log(ex),2,channel.medians,"-")
+
+# boxplot post median normalization on ex
+boxplot(normalized.log.ex, main = 'Boxplot of the data after median normalization')
+```
+
+## PCA
+
+```{r pca, fig.cap="Variance explained by the first 10 components"}
+pca <- prcomp(t(normalized.log.ex))
+summary(pca) # get the summary of the PCA, we get a table in which each column is a principal components and we have information on the standard deviation and the variation, etc
+
+screeplot(pca) # this plot show the variance explained by the first 10 components
+```
+
+```{r}
+# draw PCA plot
+group <- c(rep("cadetblue1",18), rep("red",18), rep("purple",6) ) # vector of colors based on the order of my data
+plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
+text(pca$x[,1], pca$x[,2], rownames(pca$data), cex=0.75)
+```
+
+
+The vector group used in the PCA plot is based on the data. The samples corresponding to the colors are the following:
+
+-   **Light blue**: reduction mammoplasty (RM) breast epithelium samples
+
+-   **Red**: histologically normal (HN) epithelial samples from breast cancer patient
+
+-   **Purple**: histologically normal breast epithelium (NlEpi) from prophylactic mastectomy patient samples
+
+Let's try to explore an interactive PCA plot.
+
+```{r fig1 interactive PCA plot, message=FALSE}
+components<-pca[["x"]]
+components<-data.frame(components)
+type<-c(rep("RM", 18), rep("HN",18), rep("NlEpi",6))
+components<-cbind(components, type )
+
+fig <- plot_ly(components, x=~PC1, y=~PC2, 
+               color=type,colors=c('cadetblue1', 'red','purple'), 
+               type='scatter',mode='markers')
+fig
+```
+
+```{r fig2 interactive PCA plot, message=FALSE}
+fig2 <- plot_ly(components, x=~PC1, y=~PC2, z=~PC3, 
+                color=type, colors=c('cadetblue1', 'red','purple'),
+                mode='markers', marker = list(size = 4))
+fig2
+```
+
+
+```{r fig3 interactive PCA plot, message=FALSE}
+fig3 <- plot_ly(components, x=~PC1, y=~PC3, 
+                color=type, colors=c('cadetblue1', 'red','purple'),
+                type='scatter',mode='markers')
+fig3
+```
+
+## UMAP
+
+```{r UMAP 2D}
+umap_data <- umap::umap(t(normalized.log.ex), 
+                        n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),#or the square root of the rows 
+                        min_dist = 0.1,         
+                        metric = "euclidean",    #you can change it
+                        n_components = 2) #used the default ones! 
+
+umap_df <- data.frame(umap_data$layout) %>% tibble::rownames_to_column('Samples')
+umap_df$type<-c(rep("RM", 18), rep("HN",18), rep("NlEpi",6))
+
+library(plotly)
+
+figUmap <- plot_ly(umap_df, 
+                 x = ~X1, y = ~X2, color = umap_df$type,
+                 colors = c('cadetblue1', 'red','purple'),   
+                 mode = 'markers',
+                 size=1)
+
+# Display the 2D scatter plot
+figUmap
+```
+
+```{r UMAP 3D}
+umap_data_3D <- umap::umap(t(normalized.log.ex), 
+                        n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),
+                      #or the square root of the rows, provato anche con 5 fa pena, anche 15 abbastanza pena  
+                        min_dist = 0.1,         
+                        metric = "euclidean",    #you can change it
+                        n_components = 3) #used the default ones! 
+
+umap_df_3D <- data.frame(umap_data_3D$layout) %>% tibble::rownames_to_column('Samples')
+umap_df_3D$type<-c(rep("RM", 18), rep("HN",18), rep("NlEpi",6))
+
+figUmap_3D <- plot_ly(umap_df_3D, 
+                 x = ~X1, y = ~X2, z=~X3, color = umap_df_3D$type,
+                 colors = c('cadetblue1', 'red','purple'),   
+                 mode = 'markers',
+                 size=1) %>% layout(title = 'Umap 1 control-tumors 3D')
+
+# Display the 2D scatter plot
+figUmap_3D
+```
+```
+
+
