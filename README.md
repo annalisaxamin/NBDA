@@ -8,5 +8,5 @@ The code is available [here](https://github.com/annalisaxamin/NBDA/blob/main/NBD
 This project analyses the [GSE20437](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE20437) dataset retrieved from GEO.
 
 ## Repository's structure
-- **Code**: contains the scripts and the HTML file generated from the Rmarkdown.
+- **Code**: contains the scripts, the HTML file generated from the Rmarkdown, the data and the PDFs of the plots generated.
 - **Bib**: contains the papers used as bibliography.
