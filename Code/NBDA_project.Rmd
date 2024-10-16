@@ -40,6 +40,7 @@ library(sessioninfo)
 library(ggplot2)
 library(factoextra)
 library(useful)
+library(umap)
 
 my_colors <- c("#2e005d", "#5c008b", "#8e008b", "#ff8300", "#ff6200", "#d1105a", "#05a8aa")
 ```
@@ -95,6 +96,15 @@ p <- ggplot(metadata, aes(x=disease.state.ch1, fill=specimen.ch1))+
   scale_fill_manual(values = my_colors[c(1,4,6,7)])
 p + labs(x = "Group") 
 
+```
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/01_plot_groups.pdf")
+p <- ggplot(metadata, aes(x=disease.state.ch1, fill=specimen.ch1))+
+  geom_bar()+
+  scale_fill_manual(values = my_colors[c(1,4,6,7)])
+p + labs(x = "Group") 
+dev.off()
 ```
 
 
@@ -159,6 +169,17 @@ boxplot(ex, main = 'Boxplot of the data before normalization',
         )
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/02_boxplot_no_norm.pdf")
+boxplot(ex, main = 'Boxplot of the data before normalization',
+        xlab = "Samples",
+        ylab = "Expression Value",
+        varwidth = TRUE
+        )
+dev.off()
+```
+
 The boxplot shows that scaling is necessary. So, in this case, I try to apply a log transformation to the data.
 
 ```{r boxplot log transformation, fig.cap="Boxplot of the data after applying a logarithmic transformation"}
@@ -169,6 +190,16 @@ boxplot(ex2, main = 'Boxplot of the data after applying a logarithmic transforma
         xlab = "Samples",
         ylab = "Expression Value"
         )
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/03_boxplot_log_no_norm.pdf")
+boxplot(ex2, main = 'Boxplot of the data after applying a logarithmic transformation',
+        xlab = "Samples",
+        ylab = "Expression Value"
+        )
+dev.off()
 ```
 
 From the boxplot after the log transformation, I can see that there is some variation in the median of the samples. So, I try to apply a median normalization to the data after the log transformation.
@@ -183,6 +214,16 @@ boxplot(normalized.log.ex,
         main = 'Boxplot of the data after median normalization',
         xlab = "Samples",
         ylab = "Expression Value")
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/04_boxplot_log_norm.pdf")
+boxplot(normalized.log.ex, 
+        main = 'Boxplot of the data after median normalization',
+        xlab = "Samples",
+        ylab = "Expression Value")
+dev.off()
 ```
 
 ## PCA
@@ -215,6 +256,13 @@ p <- ggplot(data = screeDf, aes(x=Dimensions, y=Percentages))+
 p
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/05_ScreePlot.pdf")
+p
+dev.off()
+```
+
 The scree plot shows that the first dimensions on the left are the more important because the percentage of variance explained by them is higher. The remaining principal components account for a very small proportion of the variability and are probably unimportant.
 
 Let's try to plot the PCA, looking if we can see a separation between Control and Breast Cancer groups.
@@ -228,6 +276,18 @@ legend("topleft", col=c("cadetblue1","red"), legend = c("Control", "Breast Cance
     pch = 20, bty='n', cex=.55)
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/06_PCA_tumorVScontrol.pdf")
+# draw PCA plot control VS breast cancer
+group <- c(rep("cadetblue1",18), rep("red",18), rep("cadetblue1",6) ) 
+plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
+text(pca$x[,1], pca$x[,2], rownames(pca$data), cex=0.75)
+legend("topleft", col=c("cadetblue1","red"), legend = c("Control", "Breast Cancer"),
+    pch = 20, bty='n', cex=.55)
+dev.off()
+```
+
 ```{r PCA for components 1 and 2 control VS Breast cancer with labels, include=FALSE}
 # draw PCA plot control VS breast cancer
 group <- c(rep("cadetblue1",18), rep("red",18), rep("cadetblue1",6) ) 
@@ -236,6 +296,19 @@ text(pca$x[,1], pca$x[,2], rownames(pca$x), cex=0.5) # add labels to points
 legend("topleft", col=c("cadetblue1","red"), legend = c("Control", "Breast Cancer"),
     pch = 20, bty='n', cex=.55)
 ```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/07_PCA_tumorVScontrol_labels.pdf")
+# draw PCA plot control VS breast cancer
+group <- c(rep("cadetblue1",18), rep("red",18), rep("cadetblue1",6) ) 
+plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
+text(pca$x[,1], pca$x[,2], rownames(pca$x), cex=0.5) # add labels to points
+legend("topleft", col=c("cadetblue1","red"), legend = c("Control", "Breast Cancer"),
+    pch = 20, bty='n', cex=.55)
+dev.off()
+```
+
 Let's try to add the control subtypes. The vector group used in the PCA plot is based on the data. The samples corresponding to the colors are the following:
 
 -   **Light blue**: reduction mammoplasty (RM) breast epithelium samples
@@ -252,6 +325,18 @@ text(pca$x[,1], pca$x[,2], rownames(pca$data), cex=0.75)
 legend("topleft", col=c("cadetblue1","red","purple"), legend = c("Reduction Mammoplasty", "Breast Cancer", "Prophylactic Mastectomy"),
     pch = 20, bty='n', cex=.55)
 ```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/08_PCA_subtypes_control.pdf")
+group <- c(rep("cadetblue1",18), rep("red",18), rep("purple",6) ) # vector of colors based on the order of my data
+plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
+text(pca$x[,1], pca$x[,2], rownames(pca$data), cex=0.75)
+legend("topleft", col=c("cadetblue1","red","purple"), legend = c("Reduction Mammoplasty", "Breast Cancer", "Prophylactic Mastectomy"),
+    pch = 20, bty='n', cex=.55)
+dev.off()
+```
+
 ```{r PCA for components 1 and 2 control subtypes with labels, include=FALSE}
 # draw PCA plot
 group <- c(rep("cadetblue1",18), rep("red",18), rep("purple",6) ) # vector of colors based on the order of my data
@@ -261,6 +346,17 @@ legend("topleft", col=c("cadetblue1","red","purple"), legend = c("Reduction Mamm
     pch = 20, bty='n', cex=.55)
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/09_PCA_subtypes_control_labels.pdf")
+# draw PCA plot
+group <- c(rep("cadetblue1",18), rep("red",18), rep("purple",6) ) # vector of colors based on the order of my data
+plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
+text(pca$x[,1], pca$x[,2], rownames(pca$x), cex=0.5) # add labels
+legend("topleft", col=c("cadetblue1","red","purple"), legend = c("Reduction Mammoplasty", "Breast Cancer", "Prophylactic Mastectomy"),
+    pch = 20, bty='n', cex=.55)
+dev.off()
+```
 
 Then, I try to see if there is a separation also inside different types of Breast Cancer.
 ```{r pca with all subtypes without labels}
@@ -272,6 +368,18 @@ legend("topleft", col=c(my_colors[7],my_colors[4],my_colors[1],my_colors[6]), le
     pch = 20, bty='n', cex=.55)
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/10_PCA_all_subtypes.pdf")
+# draw PCA plot with all subtypes
+group <- c(rep(my_colors[7],18), rep(my_colors[4],9), rep(my_colors[1],9), rep(my_colors[6],6) ) # vector of colors based on the order of my data
+plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
+text(pca$x[,1], pca$x[,2], rownames(pca$data), cex=0.75)
+legend("topleft", col=c(my_colors[7],my_colors[4],my_colors[1],my_colors[6]), legend = c("Reduction Mammoplasty", "ER+ Breast Cancer", "ER- Breast Cancer", "Prophylactic Mastectomy"),
+    pch = 20, bty='n', cex=.55)
+dev.off()
+```
+
 ```{r pca with all subtypes with labels, include=FALSE}
 # draw PCA plot with all subtypes
 group <- c(rep(my_colors[7],18), rep(my_colors[4],9), rep(my_colors[1],9), rep(my_colors[6],6) ) # vector of colors based on the order of my data
@@ -279,6 +387,18 @@ plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 
 text(pca$x[,1], pca$x[,2], rownames(pca$x), cex=0.5)
 legend("topleft", col=c(my_colors[7],my_colors[4],my_colors[1],my_colors[6]), legend = c("Reduction Mammoplasty", "ER+ Breast Cancer", "ER- Breast Cancer", "Prophylactic Mastectomy"),
     pch = 20, bty='n', cex=.55)
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/11_PCA_all_subtypes_labels.pdf")
+# draw PCA plot with all subtypes
+group <- c(rep(my_colors[7],18), rep(my_colors[4],9), rep(my_colors[1],9), rep(my_colors[6],6) ) # vector of colors based on the order of my data
+plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
+text(pca$x[,1], pca$x[,2], rownames(pca$x), cex=0.5)
+legend("topleft", col=c(my_colors[7],my_colors[4],my_colors[1],my_colors[6]), legend = c("Reduction Mammoplasty", "ER+ Breast Cancer", "ER- Breast Cancer", "Prophylactic Mastectomy"),
+    pch = 20, bty='n', cex=.55)
+dev.off()
 ```
 
 ### Interactive PCA plot
@@ -313,7 +433,7 @@ fig3
 
 ## UMAP
 
-```{r UMAP 2D, include=FALSE}
+```{r UMAP 2D}
 umap_data <- umap::umap(t(normalized.log.ex), 
                         n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),#or the square root of the rows 
                         min_dist = 0.1,         
@@ -330,8 +450,9 @@ umap_df$Group<-c(rep("Reduction Mammoplasty", 18), rep("ER+ Breast Cancer",9), r
 library(plotly)
 
 figUmap <- plot_ly(umap_df, 
-                 x = ~X1, y = ~X2, color = umap_df$type,
+                 x = ~X1, y = ~X2, color = umap_df$Group,
                  colors = c('cadetblue1', 'red','purple'),   
+                 type = 'scatter',
                  mode = 'markers',
                  size=1)
 
@@ -339,51 +460,30 @@ figUmap <- plot_ly(umap_df,
 figUmap
 ```
 
-```{r, include=FALSE}
-umap_data <- umap::umap(t(normalized.log.ex), 
-  n_neighbors = 15,            # Number of neighboring data points to consider
-  metric = "euclidean",        # Distance metric to use
-  n_components = 2,            # Number of components in the reduced space
-  min_dist = 0.1,              # Minimum distance between points in the embedding
-  spread = 1.0,                # Spread of the low-dimensional representation
-  set_op_mix_ratio = 1.0,      # Mix ratio for set operation
-  local_connectivity = 1.0,    # Connectivity parameter for local UMAP
-  repulsion_strength = 1.0,    # Strength of the repulsion forces
-)
-umap_df <- data.frame(umap_data$layout)
-#group_data <- data.frame(metadata$specimen.ch1)
-#umap_df <- cbind(umap_df,group_data)
-colnames(umap_df) <- c("Umap_1", "Umap_2") 
-                       #,"Group")
-rownames(umap_df) <-  rownames(t(normalized.log.ex)) 
-print(umap_data)
-
-umap_df$Group<-c(rep("Reduction Mammoplasty", 18), rep("ER+ Breast Cancer",9), rep("ER- Breast Cancer", 9), rep("Prophylactic Mastectomy",6))
-
-```
-
-
-```{r UMAP 3D, include=FALSE}
+```{r UMAP 3D}
 umap_data_3D <- umap::umap(t(normalized.log.ex), 
                         n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),
-                      #or the square root of the rows, provato anche con 5 fa pena, anche 15 abbastanza pena  
+                      #or the square root of the rows
                         min_dist = 0.1,         
                         metric = "euclidean",    #you can change it
                         n_components = 3) #used the default ones! 
 
-umap_df_3D <- data.frame(umap_data_3D$layout) %>% tibble::rownames_to_column('Samples')
-umap_df_3D$type<-c(rep("RM", 18), rep("HN",18), rep("NlEpi",6))
+umap_df_3D <- data.frame(umap_data_3D$layout)
+group_data <- data.frame(metadata$specimen.ch1)
+umap_df_3D <- cbind(umap_df_3D,group_data)
+colnames(umap_df_3D) <- c("X1", "X2", "X3", "Group")
+
+umap_df_3D$Group<-c(rep("Reduction Mammoplasty", 18), rep("ER+ Breast Cancer",9), rep("ER- Breast Cancer", 9), rep("Prophylactic Mastectomy",6))
 
 figUmap_3D <- plot_ly(umap_df_3D, 
-                 x = ~X1, y = ~X2, z=~X3, color = umap_df_3D$type,
+                 x = ~X1, y = ~X2, z=~X3, color = umap_df_3D$Group,
                  colors = c('cadetblue1', 'red','purple'),   
                  mode = 'markers',
-                 size=1) %>% layout(title = 'Umap 1 control-tumors 3D')
+                 size=1) %>% layout(title = 'Umap 3D')
 
-# Display the 2D scatter plot
+# Display the 3D scatter plot
 figUmap_3D
 ```
-
 
 # Clustering
 ## K-means
@@ -396,6 +496,8 @@ table(kmeans_result$cluster) # tells how many samples were assigned to each clus
 ```
 
 ```{r plot kmeans, include=FALSE}
+# save plot as pdf
+pdf("plots/12_kmeans_2_labels.pdf")
 plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=colnames(ex)),hjust=0,vjust=0)
 ```
 
@@ -403,13 +505,31 @@ plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=colnames(ex
 plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$disease.state.ch1),hjust=0,vjust=0)
 ```
 
-```{r cluster plot kmeans}
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/13_kmeans_2_metadata_title.pdf")
+plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$disease.state.ch1),hjust=0,vjust=0)
+dev.off()
+```
+
+```{r cluster plot kmeans 2 clusters}
 fviz_cluster(kmeans_result, data = t(normalized.log.ex),
-             palette = c("#2E9FDF", "#E7B800", "green", "red"), 
+              palette = c("#FF6666", "#33cccc"), 
              geom = "point",
              ellipse.type = "convex", 
              ggtheme = theme_bw()
              )
+```
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/14_kmeans_2_cluster_plot.pdf")
+fviz_cluster(kmeans_result, data = t(normalized.log.ex),
+              palette = c("#FF6666", "#33cccc"), 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+dev.off()
 ```
 
 Let's try increasing the number of clusters.
@@ -425,13 +545,31 @@ table(kmeans_result$cluster) # tells how many samples were assigned to each clus
 plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$specimen.ch1),hjust=0,vjust=0)
 ```
 
-```{r cluster plot kmeans}
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/15_kmeans_4_metadata_title.pdf")
+plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$specimen.ch1),hjust=0,vjust=0)
+dev.off()
+```
+
+```{r cluster plot kmeans 4 clusters}
 fviz_cluster(kmeans_result, data = t(normalized.log.ex),
-             palette = c("#2E9FDF", "#E7B800", "green", "red"), 
+             palette = c("#FF6666", "#99C666", "#33cccc", "#cc66ff"), 
              geom = "point",
              ellipse.type = "convex", 
              ggtheme = theme_bw()
              )
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/16_kmeans_4_cluster_plot.pdf")
+fviz_cluster(kmeans_result, data = t(normalized.log.ex),
+             palette = c("#FF6666", "#99C666", "#33cccc", "#cc66ff"), 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+dev.off()
+```
 
