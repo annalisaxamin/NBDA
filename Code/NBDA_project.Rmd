@@ -2,12 +2,12 @@
 title: "Project Network-based Data Analysis"
 author: "Annalisa Xamin"
 output: 
-  html_document:
-    toc: true
-    df_print: paged
   pdf_document:
     latex_engine: xelatex
     toc: true
+  html_document:
+    toc: true
+    df_print: paged
 always_allow_html: true
 ---
 ```{r include=FALSE}
@@ -41,6 +41,7 @@ library(ggplot2)
 library(factoextra)
 library(useful)
 library(umap)
+library(ggpubr)
 
 my_colors <- c("#2e005d", "#5c008b", "#8e008b", "#ff8300", "#ff6200", "#d1105a", "#05a8aa")
 ```
