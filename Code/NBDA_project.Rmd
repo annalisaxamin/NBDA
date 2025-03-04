@@ -13,7 +13,7 @@ always_allow_html: true
 ```{r include=FALSE}
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 # knitr::opts_chunk$set(cache = TRUE)
-setwd("~/Documents/Repo_Git/NBDA/Code")
+setwd("~/Repo_Git/NBDA/Code")
 ```
 
 ---
