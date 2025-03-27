@@ -10,17 +10,14 @@ output:
     df_print: paged
 always_allow_html: true
 ---
-```{r include=FALSE}
+```{r, include=FALSE}
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 # knitr::opts_chunk$set(cache = TRUE)
 setwd("~/Repo_Git/NBDA/Code")
 ```
 
----
 
-## Install and load R packages
-
-```{r packages, warning=FALSE, results='hide', message=FALSE}
+```{r packages, warning=FALSE, results='hide', message=FALSE, include=FALSE}
 
 if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
@@ -30,6 +27,12 @@ if (!require("GEOquery", quietly = TRUE))
 
 if (!require("rScudo", quietly = TRUE))
     BiocManager::install("rScudo") 
+
+if (!require("limma", quietly = TRUE))
+    BiocManager::install("limma") 
+
+if (!require("EnhancedVolcano", quietly = TRUE))
+    BiocManager::install("EnhancedVolcano") 
 
 library(tidyverse)
 library(dplyr)
@@ -42,13 +45,17 @@ library(factoextra)
 library(useful)
 library(umap)
 library(ggpubr)
+library(limma)
+library(EnhancedVolcano)
+library(magrittr)
+library(cluster)
+library(randomForest)
+library(RColorBrewer)
 
 my_colors <- c("#2e005d", "#5c008b", "#8e008b", "#ff8300", "#ff6200", "#d1105a", "#05a8aa")
 ```
 
-# R session information
-Print the R session information for reproducibility.
-```{r session info, warning=FALSE}
+```{r session info, warning=FALSE, include=FALSE}
 print('Reproducibility information:') 
 Sys.time()
 proc.time()
@@ -72,7 +79,10 @@ Note that sample numbers correspond to individual patient samples.
 
 ```{r retrieve data from GEO}
 # download the GSE20437 expression data series
-gse <- getGEO("GSE20437", destdir= './data/', getGPL = F)
+#gse <- getGEO("GSE20437", destdir= './data/', getGPL = F)
+
+# load the local copy of the data
+gse <- getGEO(file = "./data/GSE20437_series_matrix.txt.gz", getGPL = FALSE)
 ```
 
 ```{r}
@@ -80,16 +90,20 @@ gse <- getGEO("GSE20437", destdir= './data/', getGPL = F)
 length(gse) 
 # shows us there is only one object in it. 
 # We assign it to the same variable.
-gse <- gse[[1]]
+#gse <- gse[[1]] # run only if you download data and 
+# if you don't use the local copy
 ```
 
 ```{r retrieve metadata}
 # extract metadata
 metadata <- data.frame(gse@phenoData@data)
-
-# save metadata to csv file
-#write.csv(metadata, file = 'metadata.csv', row.names = TRUE)
 ```
+
+```{r save metadata to csv file, include=FALSE}
+# save metadata to csv file
+write.csv(metadata, file = 'output/metadata.csv', row.names = TRUE)
+```
+
 
 ```{r plot groups, warning=FALSE}
 p <- ggplot(metadata, aes(x=disease.state.ch1, fill=specimen.ch1))+
@@ -204,6 +218,19 @@ dev.off()
 ```
 
 From the boxplot after the log transformation, I can see that there is some variation in the median of the samples. So, I try to apply a median normalization to the data after the log transformation.
+
+
+```{r}
+##### FIIIIXXXXX
+# MEDIAN NORMALIZATION
+normalized.log.ex=scale(log(ex))
+
+# boxplot post median normalization on ex
+boxplot(normalized.log.ex, 
+        main = 'Boxplot of the data after median normalization',
+        xlab = "Samples",
+        ylab = "Expression Value")
+```
 
 ```{r median normalization and boxplot, fig.cap="Boxplot of the data after median normalization"}
 # MEDIAN NORMALIZATION
@@ -432,9 +459,7 @@ fig3 <- plot_ly(components, x=~PC1, y=~PC3,
 fig3
 ```
 
-## UMAP
-
-```{r UMAP 2D}
+```{r UMAP 2D, include=FALSE}
 umap_data <- umap::umap(t(normalized.log.ex), 
                         n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),#or the square root of the rows 
                         min_dist = 0.1,         
@@ -461,7 +486,7 @@ figUmap <- plot_ly(umap_df,
 figUmap
 ```
 
-```{r UMAP 3D}
+```{r UMAP 3D, include=FALSE}
 umap_data_3D <- umap::umap(t(normalized.log.ex), 
                         n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),
                       #or the square root of the rows
@@ -573,4 +598,150 @@ fviz_cluster(kmeans_result, data = t(normalized.log.ex),
              )
 dev.off()
 ```
+
+## Hierarchical
+
+#### FIX DA QUA
+
+```{r determine optimal number of cluster}
+# Elbow method
+fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "wss") 
+## seems setting number of clusters equal to 2
+```
+
+```{r}
+# Silhouette method
+fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "silhouette")
+## seems setting number of clusters equal to 2
+```
+
+We use the Gap statistic to calculate the goodness of clustering.
+```{r}
+# Gap Statistic Method
+gap_stat <- clusGap(t(normalized.log.ex), FUN = hcut, nstart = 25, K.max = 10, B = 50)
+# K.max -> the maximum number of clusters to consider
+# B -> number of Monte Carlo samples
+
+fviz_gap_stat(gap_stat)
+
+```
+
+
+
+```{r}
+hc_result <- dist(t(normalized.log.ex)) %>% hclust(method = "ave")
+hc_result2<- dist(t(normalized.log.ex), method="euclidean") %>% hclust( method = "complete") 
+hc_result3 <- dist(t(normalized.log.ex)) %>% hclust(method = 'single')
+
+k_hc <- 2
+
+groups <- cutree(hc_result, k=k_hc)
+table(groups,type)
+
+groups2<-cutree(hc_result2, k=k_hc)
+table(groups2,type)
+
+groups3 <- cutree(hc_result3,k=k_hc)
+table(groups3,type)
+
+plot(hc_result, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, averege')
+rect.hclust(hc_result, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+
+plot(hc_result2, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, complete')
+rect.hclust(hc_result2, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+
+plot(hc_result3, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, single')
+rect.hclust(hc_result3, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+
+```
+
+## Random forest
+
+```{r}
+set.seed(1234)
+rf <- randomForest(x=t(normalized.log.ex), y=as.factor(type), ntree=1000)
+
+plot(rf)
+```
+```{r}
+# a trivial test
+predict(rf, t(normalized.log.ex[, 1:5]))
+# graph of sorted importance values
+
+plot(sort(rf$importance, decreasing=TRUE)) 
+#this plot goes into the report
+
+# can also use: varImpPlot(rf)
+```
+
+
+```{r}
+varImpPlot(rf)
+```
+
+
+```{r, warning=FALSE}
+#extract the most 'important' genes
+probe.names <- rownames(rf$importance)
+top200 <- probe.names[order(rf$importance, decreasing=TRUE)[1:200]]
+
+write.csv(top200, file = "output/probes-top200.txt", quote=FALSE, row.names =FALSE, col.names=FALSE)
+```
+
+## Heatmap
+This is optional. Not suggested to include heatmap in the report, because at the end of the project there will be too many graphs and this is not a valuable one.
+```{r}
+# Look at variable importance
+imp.temp <- abs(rf$importance[,])
+t <- order(imp.temp,decreasing=TRUE)
+plot(c(1:nrow(normalized.log.ex)),imp.temp[t],log='x',cex.main=1.5,
+xlab='gene rank',ylab='variable importance',cex.lab=1.5,
+pch=16,main='ALL subset results')
+```
+
+```{r heatmap}
+# Get subset of expression values for 25 most 'important' genes
+gn.imp <- names(imp.temp)[t]
+gn.25 <- gn.imp[1:25] # vector of top 25 genes, in order
+t <- is.element(rownames(normalized.log.ex),gn.25)
+sig.ex <- normalized.log.ex[t,] # matrix of expression values, not necessarily in order
+
+## Make a heatmap, with group differences obvious on plot
+hmcol <- colorRampPalette(brewer.pal(11,"PuOr"))(256)
+colnames(sig.ex) <- group # This will label the heatmap columns
+csc <- rep(hmcol[50],30)
+csc[group=='T'] <- hmcol[200]
+# column side color will be purple for T and orange for B
+heatmap(sig.ex, scale="row", col=hmcol, ColSideColors=csc)
+```
+
+
+## Feature selection
+
+```{r}
+set.seed(1)
+#group <-c(rep("Reduction Mammoplasty", 18), rep("ER+ Breast Cancer",9), rep("ER- Breast Cancer", 9), rep("Prophylactic Mastectomy",6))
+
+group <- c(rep("Control",18), rep("Breast_cancer",18), rep("Control",6))
+design <- model.matrix(~0+group)
+colnames(design) <- c("Controls","Breast_Cancer")
+rownames(design)<-colnames(exprs(gse))
+#design
+```
+
+
+```{r}
+fit <- lmFit(exprs(gse), design)
+cont.matrix <- makeContrasts(contrasts = "Breast_Cancer-Controls", levels=design) 
+#cont.matrix
+```
+```{r}
+fit2 <- contrasts.fit(fit, cont.matrix)
+fit2
+```
+```{r}
+fit2 <- eBayes(fit2)
+fit2
+```
+
 
