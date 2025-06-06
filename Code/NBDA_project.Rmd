@@ -2,12 +2,12 @@
 title: "Project Network-based Data Analysis"
 author: "Annalisa Xamin"
 output: 
-  pdf_document:
-    latex_engine: xelatex
-    toc: true
   html_document:
     toc: true
     df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
 always_allow_html: true
 ---
 ```{r, include=FALSE}
@@ -35,6 +35,7 @@ if (!require("EnhancedVolcano", quietly = TRUE))
     BiocManager::install("EnhancedVolcano") 
 
 library(tidyverse)
+library(biomaRt)
 library(dplyr)
 library(GEOquery)
 library(rScudo)
@@ -104,7 +105,58 @@ metadata <- data.frame(gse@phenoData@data)
 write.csv(metadata, file = 'output/metadata.csv', row.names = TRUE)
 ```
 
+```{r}
+expr(gse[1])
+```
 
+## Annotation of probesets from a GEO dataset to gene symbols
+For the later analysis, it is useful to annotate the probesets of the GEO dataset to gene symbol. 
+To do that, first we extract the name of the probes and then, we perform the annotation using biomaRt.
+
+```{r}
+id_to_annotate <- rownames(gse@assayData[["exprs"]])
+# extract id to annotate
+
+# annotation
+mart <- useMart("ENSEMBL_MART_ENSEMBL")
+mart <- useDataset("hsapiens_gene_ensembl", mart)
+annotLookup <- getBM(
+  mart = mart,
+  attributes = c(
+    "affy_hg_u133_plus_2",
+    "ensembl_gene_id",
+    "gene_biotype",
+    "external_gene_name",
+    "description"),
+  filter = "affy_hg_u133_plus_2",
+  values = id_to_annotate,
+  uniqueRows=TRUE)
+```
+
+```{r}
+head(annotLookup)
+```
+
+```{r}
+indicesLookup <- match(rownames(gse@assayData[["exprs"]]), annotLookup$affy_hg_u133_plus_2)
+#head(annotLookup[indicesLookup, "external_gene_name"])
+```
+```{r}
+dftmp <- data.frame(rownames(gse@assayData[["exprs"]]), 
+                    annotLookup[indicesLookup, 
+                                c("affy_hg_u133_plus_2", "external_gene_name")])
+head(dftmp, 20)
+```
+
+```{r}
+length(rownames(gse@assayData[["exprs"]]))
+```
+
+```{r}
+table(dftmp[,1] == dftmp[,2])
+```
+
+## Explore the groups in the dataset
 ```{r plot groups, warning=FALSE}
 p <- ggplot(metadata, aes(x=disease.state.ch1, fill=specimen.ch1))+
   geom_bar()+
@@ -609,10 +661,23 @@ fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "wss")
 ## seems setting number of clusters equal to 2
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/17_elbow_plot.pdf")
+fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "wss") 
+dev.off()
+```
+
 ```{r}
 # Silhouette method
 fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "silhouette")
 ## seems setting number of clusters equal to 2
+```
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/18_Silhouette_plot.pdf")
+fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "silhouette")
+dev.off()
 ```
 
 We use the Gap statistic to calculate the goodness of clustering.
@@ -623,9 +688,13 @@ gap_stat <- clusGap(t(normalized.log.ex), FUN = hcut, nstart = 25, K.max = 10, B
 # B -> number of Monte Carlo samples
 
 fviz_gap_stat(gap_stat)
-
 ```
-
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/19_Gap_plot.pdf")
+fviz_gap_stat(gap_stat)
+dev.off()
+```
 
 
 ```{r}
@@ -633,7 +702,7 @@ hc_result <- dist(t(normalized.log.ex)) %>% hclust(method = "ave")
 hc_result2<- dist(t(normalized.log.ex), method="euclidean") %>% hclust( method = "complete") 
 hc_result3 <- dist(t(normalized.log.ex)) %>% hclust(method = 'single')
 
-k_hc <- 2
+k_hc <- 2 # optimal number of clusters
 
 groups <- cutree(hc_result, k=k_hc)
 table(groups,type)
@@ -644,7 +713,7 @@ table(groups2,type)
 groups3 <- cutree(hc_result3,k=k_hc)
 table(groups3,type)
 
-plot(hc_result, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, averege')
+plot(hc_result, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, average')
 rect.hclust(hc_result, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
 
 plot(hc_result2, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, complete')
@@ -655,13 +724,37 @@ rect.hclust(hc_result3, k = 2, which = NULL, x = NULL, h = NULL, border = 2, clu
 
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/20_Hierarchical_ave_plot.pdf")
+plot(hc_result, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, average')
+rect.hclust(hc_result, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+dev.off()
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/21_Hierarchical_complete_plot.pdf")
+plot(hc_result2, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, complete')
+rect.hclust(hc_result2, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+dev.off()
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/22_Hierarchical_single_plot.pdf")
+plot(hc_result3, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, single')
+rect.hclust(hc_result3, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+dev.off()
+```
+
 ## Random forest
 
 ```{r}
 set.seed(1234)
 rf <- randomForest(x=t(normalized.log.ex), y=as.factor(type), ntree=1000)
 
-plot(rf)
+plot(rf, main = "Random Forest")
 ```
 ```{r}
 # a trivial test
@@ -676,7 +769,7 @@ plot(sort(rf$importance, decreasing=TRUE))
 
 
 ```{r}
-varImpPlot(rf)
+varImpPlot(rf, main = "Variable Importance Random Forest")
 ```
 
 
@@ -687,6 +780,18 @@ top200 <- probe.names[order(rf$importance, decreasing=TRUE)[1:200]]
 
 write.csv(top200, file = "output/probes-top200.txt", quote=FALSE, row.names =FALSE, col.names=FALSE)
 ```
+
+```{r}
+indices_top200_annotated <- match(top200, annotLookup$affy_hg_u133_plus_2)
+top200_annotated <- annotLookup[indices_top200_annotated,"external_gene_name"]
+top200_annotated
+```
+
+```{r save top200_annotated to csv file, include=FALSE}
+# save top200_annotated to txt file
+write.csv(top200_annotated, file = 'output/top200_annotated.txt', quote=FALSE, row.names =FALSE, col.names=FALSE)
+```
+
 
 ## Heatmap
 This is optional. Not suggested to include heatmap in the report, because at the end of the project there will be too many graphs and this is not a valuable one.
