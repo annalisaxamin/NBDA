@@ -18,41 +18,41 @@ setwd("~/Repo_Git/NBDA/Code")
 
 
 ```{r packages, warning=FALSE, results='hide', message=FALSE, include=FALSE}
+# Function to install and load packages
+install_and_load <- function(pkg, bioc = FALSE) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    if (bioc) { # Bioconductor
+      if (!require("BiocManager", quietly = TRUE)) {
+        install.packages("BiocManager")
+        library(BiocManager)
+      }
+      BiocManager::install(pkg, ask = FALSE)
+    } else { # CRAN 
+      install.packages(pkg)
+    }
+    library(pkg, character.only = TRUE)
+  } else {
+    library(pkg, character.only = TRUE)
+  }
+}
 
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
+# Bioconductor packages
+bioc_packages <- c("GEOquery", "rScudo", "limma", "EnhancedVolcano",
+                   "pROC"
+                   )
 
-if (!require("GEOquery", quietly = TRUE))
-    BiocManager::install("GEOquery") 
+# CRAN packages
+cran_packages <- c(
+  "tidyverse", "biomaRt", "dplyr", "plotly", "sessioninfo",
+  "ggplot2", "factoextra", "useful", "umap", "ggpubr",
+  "magrittr", "cluster", "randomForest", "RColorBrewer", "caret"
+)
 
-if (!require("rScudo", quietly = TRUE))
-    BiocManager::install("rScudo") 
+# Install/load all packages
+lapply(bioc_packages, install_and_load, bioc = TRUE)
+lapply(cran_packages, install_and_load)
 
-if (!require("limma", quietly = TRUE))
-    BiocManager::install("limma") 
-
-if (!require("EnhancedVolcano", quietly = TRUE))
-    BiocManager::install("EnhancedVolcano") 
-
-library(tidyverse)
-library(biomaRt)
-library(dplyr)
-library(GEOquery)
-library(rScudo)
-library(plotly)
-library(sessioninfo)
-library(ggplot2)
-library(factoextra)
-library(useful)
-library(umap)
-library(ggpubr)
-library(limma)
-library(EnhancedVolcano)
-library(magrittr)
-library(cluster)
-library(randomForest)
-library(RColorBrewer)
-
+# Colors palette 
 my_colors <- c("#2e005d", "#5c008b", "#8e008b", "#ff8300", "#ff6200", "#d1105a", "#05a8aa")
 ```
 
@@ -110,7 +110,7 @@ expr(gse[1])
 ```
 
 ## Annotation of probesets from a GEO dataset to gene symbols
-For the later analysis, it is useful to annotate the probesets of the GEO dataset to gene symbol. 
+For the later analysis, it is useful to annotate the probe sets of the GEO data set to gene symbol. 
 To do that, first we extract the name of the probes and then, we perform the annotation using biomaRt.
 
 ```{r}
@@ -269,12 +269,9 @@ boxplot(ex2, main = 'Boxplot of the data after applying a logarithmic transforma
 dev.off()
 ```
 
-From the boxplot after the log transformation, I can see that there is some variation in the median of the samples. So, I try to apply a median normalization to the data after the log transformation.
-
+From the boxplot after the log transformation, I can see that there is some variation in the median of the samples. So, one of the simplest normalization strategies is to align the log values so that all channels have the same median. A convenient choice is zero so that positive or negative values reflect signals above or below the median for a particular channel.
 
 ```{r}
-##### FIIIIXXXXX
-# MEDIAN NORMALIZATION
 normalized.log.ex=scale(log(ex))
 
 # boxplot post median normalization on ex
@@ -284,30 +281,8 @@ boxplot(normalized.log.ex,
         ylab = "Expression Value")
 ```
 
-```{r median normalization and boxplot, fig.cap="Boxplot of the data after median normalization"}
-# MEDIAN NORMALIZATION
-channel.medians=apply(log(ex),2,median)
-normalized.log.ex=sweep(log(ex),2,channel.medians,"-")
-
-# boxplot post median normalization on ex
-boxplot(normalized.log.ex, 
-        main = 'Boxplot of the data after median normalization',
-        xlab = "Samples",
-        ylab = "Expression Value")
-```
-
-```{r, include=FALSE}
-# save plot as pdf
-pdf("plots/04_boxplot_log_norm.pdf")
-boxplot(normalized.log.ex, 
-        main = 'Boxplot of the data after median normalization',
-        xlab = "Samples",
-        ylab = "Expression Value")
-dev.off()
-```
-
 ## PCA
-PCA is a dimensionality reduction technique that allows to condense thousands of dimensions into just two or three. For the dataset's samples, the PCA scores display the coordinates in relation to these additional dimensions. 
+PCA is a dimensionality reduction technique that allows to condense thousands of dimensions into just two or three.For the dataset's samples, the PCA scores display the coordinates in relation to these additional dimensions. 
 
 ```{r pca}
 pca <- prcomp(t(normalized.log.ex))
@@ -511,56 +486,37 @@ fig3 <- plot_ly(components, x=~PC1, y=~PC3,
 fig3
 ```
 
-```{r UMAP 2D, include=FALSE}
-umap_data <- umap::umap(t(normalized.log.ex), 
-                        n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),#or the square root of the rows 
-                        min_dist = 0.1,         
-                        metric = "euclidean",    #you can change it
-                        n_components = 2) #used the default ones! 
+```{r}
+set.seed(123)  
+umap_result <- umap(t(normalized.log.ex))
 
-umap_df <- data.frame(umap_data$layout)
-group_data <- data.frame(metadata$specimen.ch1)
-umap_df <- cbind(umap_df,group_data)
-colnames(umap_df) <- c("X1", "X2", "Group")
+umap_df <- as.data.frame(umap_result$layout)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
 
-umap_df$Group<-c(rep("Reduction Mammoplasty", 18), rep("ER+ Breast Cancer",9), rep("ER- Breast Cancer", 9), rep("Prophylactic Mastectomy",6))
+# Add sample types to the UMAP data frame
+umap_df$type <- c(rep("RM", 18), rep("HN",18), rep("NlEpi",6))
 
-library(plotly)
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = type)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_color_manual(values = c("RM" = "cadetblue1", 
+                                "HN" = "red", 
+                                "NlEpi" = "purple")) +
+  theme_minimal() +
+  labs(title = "2D UMAP Projection of GSE20437", x = "UMAP1", y = "UMAP2")
 
-figUmap <- plot_ly(umap_df, 
-                 x = ~X1, y = ~X2, color = umap_df$Group,
-                 colors = c('cadetblue1', 'red','purple'),   
-                 type = 'scatter',
-                 mode = 'markers',
-                 size=1)
-
-# Display the 2D scatter plot
-figUmap
 ```
 
-```{r UMAP 3D, include=FALSE}
-umap_data_3D <- umap::umap(t(normalized.log.ex), 
-                        n_neighbors = sqrt(dim(t(normalized.log.ex))[1]),
-                      #or the square root of the rows
-                        min_dist = 0.1,         
-                        metric = "euclidean",    #you can change it
-                        n_components = 3) #used the default ones! 
+```{r, include=FALSE}
+pdf("plots/12_UMAP_plot.pdf")
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = type)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_color_manual(values = c("RM" = "cadetblue1", 
+                                "HN" = "red", 
+                                "NlEpi" = "purple")) +
+  theme_minimal() +
+  labs(title = "UMAP Projection of GSE20437", x = "UMAP1", y = "UMAP2")
+dev.off()
 
-umap_df_3D <- data.frame(umap_data_3D$layout)
-group_data <- data.frame(metadata$specimen.ch1)
-umap_df_3D <- cbind(umap_df_3D,group_data)
-colnames(umap_df_3D) <- c("X1", "X2", "X3", "Group")
-
-umap_df_3D$Group<-c(rep("Reduction Mammoplasty", 18), rep("ER+ Breast Cancer",9), rep("ER- Breast Cancer", 9), rep("Prophylactic Mastectomy",6))
-
-figUmap_3D <- plot_ly(umap_df_3D, 
-                 x = ~X1, y = ~X2, z=~X3, color = umap_df_3D$Group,
-                 colors = c('cadetblue1', 'red','purple'),   
-                 mode = 'markers',
-                 size=1) %>% layout(title = 'Umap 3D')
-
-# Display the 3D scatter plot
-figUmap_3D
 ```
 
 # Clustering
@@ -653,7 +609,6 @@ dev.off()
 
 ## Hierarchical
 
-#### FIX DA QUA
 
 ```{r determine optimal number of cluster}
 # Elbow method
@@ -712,58 +667,164 @@ table(groups2,type)
 
 groups3 <- cutree(hc_result3,k=k_hc)
 table(groups3,type)
+```
+```{r}
+# Set up layout with extra space below the plot
+par(mar = c(6, 4, 4, 2))   # increase bottom margin
+par(xpd = TRUE)            # allow text outside plot region
 
-plot(hc_result, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, average')
-rect.hclust(hc_result, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+# Plot dendrogram
+plot(hc_result, hang = -1, labels = type, 
+     main = 'Hierarchical clustering dendrogram (average)')
+rect.hclust(hc_result, k = 2, border = 2) # red boxes to show groups
 
-plot(hc_result2, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, complete')
-rect.hclust(hc_result2, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+# Add custom legend box below the plot
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
+     labels = paste(
+       "RM = Reduction Mammoplasty breast epithelium\n",
+       "HN = Histologically normal epithelial samples from breast cancer patients (ER+ and ER-)\n",
+       "NlEpi = Normal epithelial samples from prophylactic mastectomy patients"
+     ),
+     cex = 0.8, adj = 0.5)
+```
 
-plot(hc_result3, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, single')
-rect.hclust(hc_result3, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+```{r}
+# Set up layout with extra space below the plot
+par(mar = c(6, 4, 4, 2))   # increase bottom margin
+par(xpd = TRUE)            # allow text outside plot region
 
+# Plot dendrogram
+plot(hc_result2, hang = -1, labels = type, 
+     main = 'Hierarchical clustering dendrogram (complete)')
+rect.hclust(hc_result, k = 2, border = 2) # red boxes to show groups
+
+# Add custom legend box below the plot
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
+     labels = paste(
+       "RM = Reduction Mammoplasty breast epithelium\n",
+       "HN = Histologically normal epithelial samples from breast cancer patients (ER+ and ER-)\n",
+       "NlEpi = Normal epithelial samples from prophylactic mastectomy patients"
+     ),
+     cex = 0.8, adj = 0.5)
+```
+
+```{r}
+# Set up layout with extra space below the plot
+par(mar = c(6, 4, 4, 2))   # increase bottom margin
+par(xpd = TRUE)            # allow text outside plot region
+
+# Plot dendrogram
+plot(hc_result3, hang = -1, labels = type, 
+     main = 'Hierarchical clustering dendrogram (single)')
+rect.hclust(hc_result, k = 2, border = 2) # red boxes to show groups
+
+# Add custom legend box below the plot
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
+     labels = paste(
+       "RM = Reduction Mammoplasty breast epithelium\n",
+       "HN = Histologically normal epithelial samples from breast cancer patients (ER+ and ER-)\n",
+       "NlEpi = Normal epithelial samples from prophylactic mastectomy patients"
+     ),
+     cex = 0.8, adj = 0.5)
 ```
 
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/20_Hierarchical_ave_plot.pdf")
-plot(hc_result, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, average')
-rect.hclust(hc_result, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+# Set up layout with extra space below the plot
+par(mar = c(6, 4, 4, 2))   # increase bottom margin
+par(xpd = TRUE)            # allow text outside plot region
+
+# Plot dendrogram
+plot(hc_result, hang = -1, labels = type, 
+     main = 'Hierarchical clustering dendrogram (average)')
+rect.hclust(hc_result, k = 2, border = 2) # red boxes to show groups
+
+# Add custom legend box below the plot
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
+     labels = paste(
+       "RM = Reduction Mammoplasty breast epithelium\n",
+       "HN = Histologically normal epithelial samples from breast cancer patients (ER+ and ER-)\n",
+       "NlEpi = Normal epithelial samples from prophylactic mastectomy patients"
+     ),
+     cex = 0.8, adj = 0.5)
 dev.off()
 ```
 
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/21_Hierarchical_complete_plot.pdf")
-plot(hc_result2, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, complete')
-rect.hclust(hc_result2, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+# Set up layout with extra space below the plot
+par(mar = c(6, 4, 4, 2))   # increase bottom margin
+par(xpd = TRUE)            # allow text outside plot region
+
+# Plot dendrogram
+plot(hc_result2, hang = -1, labels = type, 
+     main = 'Hierarchical clustering dendrogram (complete)')
+rect.hclust(hc_result, k = 2, border = 2) # red boxes to show groups
+
+# Add custom legend box below the plot
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
+     labels = paste(
+       "RM = Reduction Mammoplasty breast epithelium\n",
+       "HN = Histologically normal epithelial samples from breast cancer patients (ER+ and ER-)\n",
+       "NlEpi = Normal epithelial samples from prophylactic mastectomy patients"
+     ),
+     cex = 0.8, adj = 0.5)
 dev.off()
 ```
 
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/22_Hierarchical_single_plot.pdf")
-plot(hc_result3, hang <- -1, labels=type, main = 'Hierarchical clustering dendrogram, single')
-rect.hclust(hc_result3, k = 2, which = NULL, x = NULL, h = NULL, border = 2, cluster = NULL) # red boxes to show groups
+# Set up layout with extra space below the plot
+par(mar = c(6, 4, 4, 2))   # increase bottom margin
+par(xpd = TRUE)            # allow text outside plot region
+
+# Plot dendrogram
+plot(hc_result3, hang = -1, labels = type, 
+     main = 'Hierarchical clustering dendrogram (single)')
+rect.hclust(hc_result, k = 2, border = 2) # red boxes to show groups
+
+# Add custom legend box below the plot
+text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
+     labels = paste(
+       "RM = Reduction Mammoplasty breast epithelium\n",
+       "HN = Histologically normal epithelial samples from breast cancer patients (ER+ and ER-)\n",
+       "NlEpi = Normal epithelial samples from prophylactic mastectomy patients"
+     ),
+     cex = 0.8, adj = 0.5)
 dev.off()
 ```
 
 ## Random forest
 
-```{r}
+```{r plot random forest error rate vs number of trees}
 set.seed(1234)
 rf <- randomForest(x=t(normalized.log.ex), y=as.factor(type), ntree=1000)
-
 plot(rf, main = "Random Forest")
 ```
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/23_RF_Error_rate_VS_n_trees.pdf")
+plot(rf, main = "Random Forest")
+dev.off()
+```
+
+The plot above shows how the error rate changes according to the number of trees. This allows to track how model accuracy improves (or doesn't) as more trees are added.
+The black line represent the overall OOB (out-of-bag) error rate, while the other colored lines report the class specific error rates.
+
+```{r, include=FALSE}
+tail(plot(rf))
+```
+
+
 ```{r}
 # a trivial test
 predict(rf, t(normalized.log.ex[, 1:5]))
-# graph of sorted importance values
 
-plot(sort(rf$importance, decreasing=TRUE)) 
-#this plot goes into the report
-
+plot(sort(rf$importance, decreasing=TRUE), main = "Graph of sorted importance values") 
+# this plot goes into the report
 # can also use: varImpPlot(rf)
 ```
 
@@ -771,6 +832,55 @@ plot(sort(rf$importance, decreasing=TRUE))
 ```{r}
 varImpPlot(rf, main = "Variable Importance Random Forest")
 ```
+```{r}
+# Get importance values
+rf_importance <- importance(rf)
+
+# Extract probe IDs in order of importance
+ordered_probes <- rownames(rf_importance)[order(rf_importance[, 1], decreasing = TRUE)]
+
+# Ensure correct mapping exists
+probe_to_symbol <- annotLookup[, c("affy_hg_u133_plus_2", "external_gene_name")]
+colnames(probe_to_symbol) <- c("probe", "symbol")
+
+# Create named vector: probe ID → gene symbol
+probe_symbols <- setNames(probe_to_symbol$symbol, probe_to_symbol$probe)
+
+# Sort importance
+ordered_importance <- rf_importance[ordered_probes, , drop = FALSE]
+
+# Get corresponding gene symbols, fallback to probe ID if not found
+gene_labels <- ifelse(ordered_probes %in% names(probe_symbols),
+                      probe_symbols[ordered_probes],
+                      ordered_probes)
+
+# Plot manually
+barplot(ordered_importance[, 1],
+        names.arg = gene_labels,
+        las = 2, # rotate y-axis labels
+        horiz = TRUE,
+        cex.names = 0.6,
+        main = "Top Variable Importance (Random Forest)",
+        col = "steelblue")
+
+```
+
+```{r}
+top_vars <- head(ordered_probes, 30)  # Show top 30 features
+imp_df <- data.frame(
+  probe = top_vars,
+  importance = rf_importance[top_vars, 1],
+  gene = ifelse(top_vars %in% names(probe_symbols), probe_symbols[top_vars], top_vars)
+)
+
+ggplot(imp_df, aes(x = reorder(gene, importance), y = importance)) +
+  geom_bar(stat = "identity", fill = "#2e005d") +
+  coord_flip() +
+  labs(title = "Top 30 Variable Importance (Random Forest)", x = "Gene", y = "Importance") +
+  theme_minimal(base_size = 12)
+
+```
+
 
 
 ```{r, warning=FALSE}
@@ -848,5 +958,13 @@ fit2
 fit2 <- eBayes(fit2)
 fit2
 ```
+```{r}
+stats<-topTable(fit2, adjust="BH", p.value=0.01, lfc=1.5, number=Inf)
+head(stats)
+all_deg<-topTable(fit2, adjust="BH", number=Inf)
+stats$Type<-c(rep("+",265))
+stats$Type[stats$logFC<0]="-"
+```
+
 
 
