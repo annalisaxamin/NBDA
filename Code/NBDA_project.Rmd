@@ -2,12 +2,12 @@
 title: "Project Network-based Data Analysis"
 author: "Annalisa Xamin"
 output: 
-  html_document:
-    toc: true
-    df_print: paged
   pdf_document:
     latex_engine: xelatex
     toc: true
+  html_document:
+    toc: true
+    df_print: paged
 always_allow_html: true
 ---
 ```{r, include=FALSE}
@@ -826,6 +826,15 @@ predict(rf, t(normalized.log.ex[, 1:5]))
 ```
 
 ```{r top 30 features random forest}
+# Get importance values
+rf_importance <- importance(rf)
+# Extract probe IDs in order of importance
+ordered_probes <- rownames(rf_importance)[order(rf_importance[, 1], decreasing = TRUE)]
+# Ensure correct mapping exists
+probe_to_symbol <- annotLookup[, c("affy_hg_u133_plus_2", "external_gene_name")]
+colnames(probe_to_symbol) <- c("probe", "symbol")
+probe_symbols <- setNames(probe_to_symbol$symbol, probe_to_symbol$probe)
+
 top_vars <- head(ordered_probes, 30)  # Show top 30 features
 imp_df <- data.frame(
   probe = top_vars,
@@ -942,38 +951,6 @@ dev.off()
 
 ## Feature selection
 
-```{r}
-set.seed(1)
-#group <-c(rep("Reduction Mammoplasty", 18), rep("ER+ Breast Cancer",9), rep("ER- Breast Cancer", 9), rep("Prophylactic Mastectomy",6))
-
-group <- c(rep("Control",18), rep("Breast_cancer",18), rep("Control",6))
-design <- model.matrix(~0+group)
-colnames(design) <- c("Controls","Breast_Cancer")
-rownames(design)<-colnames(exprs(gse))
-#design
-```
-
-
-```{r}
-fit <- lmFit(exprs(gse), design)
-cont.matrix <- makeContrasts(contrasts = "Breast_Cancer-Controls", levels=design) 
-#cont.matrix
-```
-```{r}
-fit2 <- contrasts.fit(fit, cont.matrix)
-fit2
-```
-```{r}
-fit2 <- eBayes(fit2)
-fit2
-```
-```{r}
-stats<-topTable(fit2, adjust="BH", p.value=0.01, lfc=1.5, number=Inf)
-head(stats)
-all_deg<-topTable(fit2, adjust="BH", number=Inf)
-stats$Type<-c(rep("+",265))
-stats$Type[stats$logFC<0]="-"
-```
 
 
 
