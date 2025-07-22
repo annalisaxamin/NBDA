@@ -45,7 +45,8 @@ bioc_packages <- c("GEOquery", "rScudo", "limma", "EnhancedVolcano",
 cran_packages <- c(
   "tidyverse", "biomaRt", "dplyr", "plotly", "sessioninfo",
   "ggplot2", "factoextra", "useful", "umap", "ggpubr",
-  "magrittr", "cluster", "randomForest", "RColorBrewer", "caret"
+  "magrittr", "cluster", "randomForest", "RColorBrewer", "caret",
+  "pheatmap"
 )
 
 # Install/load all packages
@@ -822,50 +823,9 @@ tail(plot(rf))
 ```{r}
 # a trivial test
 predict(rf, t(normalized.log.ex[, 1:5]))
-
-plot(sort(rf$importance, decreasing=TRUE), main = "Graph of sorted importance values") 
-# this plot goes into the report
-# can also use: varImpPlot(rf)
 ```
 
-
-```{r}
-varImpPlot(rf, main = "Variable Importance Random Forest")
-```
-```{r}
-# Get importance values
-rf_importance <- importance(rf)
-
-# Extract probe IDs in order of importance
-ordered_probes <- rownames(rf_importance)[order(rf_importance[, 1], decreasing = TRUE)]
-
-# Ensure correct mapping exists
-probe_to_symbol <- annotLookup[, c("affy_hg_u133_plus_2", "external_gene_name")]
-colnames(probe_to_symbol) <- c("probe", "symbol")
-
-# Create named vector: probe ID → gene symbol
-probe_symbols <- setNames(probe_to_symbol$symbol, probe_to_symbol$probe)
-
-# Sort importance
-ordered_importance <- rf_importance[ordered_probes, , drop = FALSE]
-
-# Get corresponding gene symbols, fallback to probe ID if not found
-gene_labels <- ifelse(ordered_probes %in% names(probe_symbols),
-                      probe_symbols[ordered_probes],
-                      ordered_probes)
-
-# Plot manually
-barplot(ordered_importance[, 1],
-        names.arg = gene_labels,
-        las = 2, # rotate y-axis labels
-        horiz = TRUE,
-        cex.names = 0.6,
-        main = "Top Variable Importance (Random Forest)",
-        col = "steelblue")
-
-```
-
-```{r}
+```{r top 30 features random forest}
 top_vars <- head(ordered_probes, 30)  # Show top 30 features
 imp_df <- data.frame(
   probe = top_vars,
@@ -878,58 +838,107 @@ ggplot(imp_df, aes(x = reorder(gene, importance), y = importance)) +
   coord_flip() +
   labs(title = "Top 30 Variable Importance (Random Forest)", x = "Gene", y = "Importance") +
   theme_minimal(base_size = 12)
-
 ```
 
-
-
-```{r, warning=FALSE}
-#extract the most 'important' genes
-probe.names <- rownames(rf$importance)
-top200 <- probe.names[order(rf$importance, decreasing=TRUE)[1:200]]
-
-write.csv(top200, file = "output/probes-top200.txt", quote=FALSE, row.names =FALSE, col.names=FALSE)
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/24_RF_Variable_importance_top_30.pdf")
+ggplot(imp_df, aes(x = reorder(gene, importance), y = importance)) +
+  geom_bar(stat = "identity", fill = "#2e005d") +
+  coord_flip() +
+  labs(title = "Top 30 Variable Importance (Random Forest)", x = "Gene", y = "Importance") +
+  theme_minimal(base_size = 12)
+dev.off()
 ```
 
-```{r}
-indices_top200_annotated <- match(top200, annotLookup$affy_hg_u133_plus_2)
-top200_annotated <- annotLookup[indices_top200_annotated,"external_gene_name"]
-top200_annotated
+```{r, include=FALSE}
+imp_df
 ```
 
-```{r save top200_annotated to csv file, include=FALSE}
-# save top200_annotated to txt file
-write.csv(top200_annotated, file = 'output/top200_annotated.txt', quote=FALSE, row.names =FALSE, col.names=FALSE)
+```{r save variable importance rf, include=FALSE}
+write.csv(imp_df, file = "output/rf_top_variable_importance.csv", row.names = FALSE)
 ```
 
 
 ## Heatmap
 This is optional. Not suggested to include heatmap in the report, because at the end of the project there will be too many graphs and this is not a valuable one.
-```{r}
-# Look at variable importance
-imp.temp <- abs(rf$importance[,])
-t <- order(imp.temp,decreasing=TRUE)
-plot(c(1:nrow(normalized.log.ex)),imp.temp[t],log='x',cex.main=1.5,
-xlab='gene rank',ylab='variable importance',cex.lab=1.5,
-pch=16,main='ALL subset results')
-```
 
 ```{r heatmap}
-# Get subset of expression values for 25 most 'important' genes
-gn.imp <- names(imp.temp)[t]
-gn.25 <- gn.imp[1:25] # vector of top 25 genes, in order
-t <- is.element(rownames(normalized.log.ex),gn.25)
-sig.ex <- normalized.log.ex[t,] # matrix of expression values, not necessarily in order
+# Select top N important probes
+top_n <- 30  
+top_probes <- imp_df$probe[1:top_n]
 
-## Make a heatmap, with group differences obvious on plot
-hmcol <- colorRampPalette(brewer.pal(11,"PuOr"))(256)
-colnames(sig.ex) <- group # This will label the heatmap columns
-csc <- rep(hmcol[50],30)
-csc[group=='T'] <- hmcol[200]
-# column side color will be purple for T and orange for B
-heatmap(sig.ex, scale="row", col=hmcol, ColSideColors=csc)
+heatmap_data <- normalized.log.ex[top_probes, ]
+# Add gene symbols
+gene_symbols <- imp_df$gene[1:top_n]
+rownames(heatmap_data) <- gene_symbols
+
+pheatmap(heatmap_data,
+         scale = "row",  # normalize expression within each gene
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "complete",
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         fontsize_row = 8,
+         main = "Top Random Forest Genes Heatmap")
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/25_Heatmap_top_30.pdf")
+pheatmap(heatmap_data,
+         scale = "row",  # normalize expression within each gene
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "complete",
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         fontsize_row = 8,
+         main = "Top Random Forest Genes Heatmap")
+dev.off()
+```
+
+```{r heatmap with specimen}
+# Ensure sample labels are aligned with expression data
+sample_types <- metadata$type
+names(sample_types) <- colnames(normalized.log.ex)
+
+# Subset for current samples
+sample_types <- sample_types[colnames(heatmap_data)]
+
+# Set rownames to match sample IDs
+rownames(metadata) <- metadata$geo_accession
+# Create annotation dataframe
+annotation_col <- data.frame(Type = metadata[colnames(heatmap_data), "specimen.ch1"])
+rownames(annotation_col) <- colnames(heatmap_data)
+
+# Convert to factor
+annotation_col$Type <- factor(annotation_col$Type)
+type_levels <- levels(annotation_col$Type)
+palette_colors <- brewer.pal(n = length(type_levels), name = "Set2")  # or "Dark2", "Paired", etc.
+names(palette_colors) <- type_levels
+
+ann_colors <- list(Type = palette_colors)
+
+pheatmap(heatmap_data,
+         scale = "row",
+         annotation_col = annotation_col,
+         annotation_colors = ann_colors,
+         show_colnames = TRUE,
+         main = "Heatmap Top Random Forest Genes by Specimen")
+```
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/26_Heatmap_top_30_with_specimen.pdf")
+pheatmap(heatmap_data,
+         scale = "row",
+         annotation_col = annotation_col,
+         annotation_colors = ann_colors,
+         show_colnames = TRUE,
+         main = "Heatmap Top Random Forest Genes by Specimen")
+dev.off()
+```
 
 ## Feature selection
 
