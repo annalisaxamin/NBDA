@@ -38,7 +38,7 @@ install_and_load <- function(pkg, bioc = FALSE) {
 
 # Bioconductor packages
 bioc_packages <- c("GEOquery", "rScudo", "limma", "EnhancedVolcano",
-                   "pROC"
+                   "pROC", "hgu133a.db"
                    )
 
 # CRAN packages
@@ -46,7 +46,7 @@ cran_packages <- c(
   "tidyverse", "biomaRt", "dplyr", "plotly", "sessioninfo",
   "ggplot2", "factoextra", "useful", "umap", "ggpubr",
   "magrittr", "cluster", "randomForest", "RColorBrewer", "caret",
-  "pheatmap"
+  "pheatmap", "MASS"
 )
 
 # Install/load all packages
@@ -870,7 +870,6 @@ write.csv(imp_df, file = "output/rf_top_variable_importance.csv", row.names = FA
 
 
 ## Heatmap
-This is optional. Not suggested to include heatmap in the report, because at the end of the project there will be too many graphs and this is not a valuable one.
 
 ```{r heatmap}
 # Select top N important probes
@@ -951,6 +950,79 @@ dev.off()
 
 ## Feature selection
 
+### LDA
 
+```{r}
+# samples as rows, genes as columns
+lda_data <- t(heatmap_data)
+colnames(lda_data) <- make.names(colnames(lda_data), unique = TRUE)
+
+# Use disease state or source name as grouping
+group <- metadata[colnames(heatmap_data), "specimen.ch1"]
+group <- factor(group)
+
+lda_model <- lda(group ~ ., data = as.data.frame(lda_data))
+# Inspect coefficients and proportions
+lda_model
+```
+
+```{r}
+lda_pred <- predict(lda_model)
+
+# Get coordinates of samples in LDA space
+lda_df <- data.frame(lda_pred$x)
+lda_df$Group <- group
+
+ggplot(lda_df, aes(x = LD1, y = LD2, color = Group)) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  labs(title = "LDA of Top RF Genes", x = "LD1", y = "LD2")
+```
+```{r}
+table(Predicted = lda_pred$class, Actual = group)
+mean(lda_pred$class == group)  # accuracy
+```
+
+
+```{r}
+# samples as rows, genes as columns
+lda_data <- t(heatmap_data)
+colnames(lda_data) <- make.names(colnames(lda_data), unique = TRUE)
+
+# Use disease state or source name as grouping
+group_disease_state <- metadata[colnames(heatmap_data), "disease.state.ch1"]
+group_disease_state <- factor(group_disease_state)
+
+lda_model_disease_state <- lda(group ~ ., data = as.data.frame(lda_data))
+# Inspect coefficients and proportions
+lda_model_disease_state
+
+levels(group_disease_state)
+
+lda_pred_disease_state <- predict(lda_model_disease_state)
+
+
+# Get the predicted LD1 values
+scores <- lda_pred_disease_state$x[, 1]  # LD1
+true_labels <- group_disease_state       # true classes
+
+# Generate ROC curve
+roc_obj <- roc(response = true_labels, predictor = scores)
+
+# Plot it
+plot(roc_obj, col = "#2E9FDF", lwd = 3, main = "ROC Curve for LDA")
+auc_value <- auc(roc_obj)
+legend("bottomright", legend = paste("AUC =", round(auc_value, 3)), col = "#2E9FDF", lwd = 3)
+```
+
+
+
+### LASSO
+
+### SCUDO
+
+## Functional enrichment analysis
+
+## Network-based Analysis
 
 
