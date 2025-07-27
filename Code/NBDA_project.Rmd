@@ -2,20 +2,21 @@
 title: "Project Network-based Data Analysis"
 author: "Annalisa Xamin"
 output: 
-  pdf_document:
-    latex_engine: xelatex
-    toc: true
   html_document:
     toc: true
     df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
 always_allow_html: true
+---
+
 ---
 ```{r, include=FALSE}
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 # knitr::opts_chunk$set(cache = TRUE)
 setwd("~/Repo_Git/NBDA/Code")
 ```
-
 
 ```{r packages, warning=FALSE, results='hide', message=FALSE, include=FALSE}
 # Function to install and load packages
@@ -38,7 +39,7 @@ install_and_load <- function(pkg, bioc = FALSE) {
 
 # Bioconductor packages
 bioc_packages <- c("GEOquery", "rScudo", "limma", "EnhancedVolcano",
-                   "pROC", "hgu133a.db"
+                   "pROC", "hgu133a.db","ggtree", "treeio","genefilter", "clusterProfiler", "org.Hs.eg.db"
                    )
 
 # CRAN packages
@@ -46,7 +47,9 @@ cran_packages <- c(
   "tidyverse", "biomaRt", "dplyr", "plotly", "sessioninfo",
   "ggplot2", "factoextra", "useful", "umap", "ggpubr",
   "magrittr", "cluster", "randomForest", "RColorBrewer", "caret",
-  "pheatmap", "MASS"
+  "pheatmap", "MASS", "glmnet", "igraph", 
+  "dendextend", "ape", "ggnewscale", "reshape2", "gprofiler2",
+  "pathfindR"
 )
 
 # Install/load all packages
@@ -67,15 +70,15 @@ session_info()
 
 # Data selection
 
-The analysis will use the dataset [GSE20437](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE20437) obtained from GEO.The dataset is generated from Affymetrix HU133A microarrays and contains 42 tissue samples. 
+The analysis will use the dataset [GSE20437](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE20437) obtained from GEO.The dataset is generated from Affymetrix HU133A microarrays and contains 42 tissue samples.
 
 In detail, the data includes:
 
-- 18 reduction mammoplasty (RM) breast epithelium samples, 
+-   18 reduction mammoplasty (RM) breast epithelium samples,
 
-- 18 histologically normal (HN) epithelial samples from breast cancer patients (9 ER+ and 9 ER-), and
+-   18 histologically normal (HN) epithelial samples from breast cancer patients (9 ER+ and 9 ER-), and
 
-- 6 histologically normal epithelial samples from prophylactic mastectomy patients. 
+-   6 histologically normal epithelial samples from prophylactic mastectomy patients.
 
 Note that sample numbers correspond to individual patient samples.
 
@@ -87,7 +90,7 @@ Note that sample numbers correspond to individual patient samples.
 gse <- getGEO(file = "./data/GSE20437_series_matrix.txt.gz", getGPL = FALSE)
 ```
 
-```{r}
+```{r inspect length gse}
 # getGEO returns a list of expression objects, but...
 length(gse) 
 # shows us there is only one object in it. 
@@ -111,27 +114,34 @@ expr(gse[1])
 ```
 
 ## Annotation of probesets from a GEO dataset to gene symbols
-For the later analysis, it is useful to annotate the probe sets of the GEO data set to gene symbol. 
-To do that, first we extract the name of the probes and then, we perform the annotation using biomaRt.
+
+For the later analysis, it is useful to annotate the probe sets of the GEO data set to gene symbol. To do that, first we extract the name of the probes and then, we perform the annotation using biomaRt.
 
 ```{r}
 id_to_annotate <- rownames(gse@assayData[["exprs"]])
 # extract id to annotate
 
 # annotation
-mart <- useMart("ENSEMBL_MART_ENSEMBL")
-mart <- useDataset("hsapiens_gene_ensembl", mart)
-annotLookup <- getBM(
-  mart = mart,
-  attributes = c(
-    "affy_hg_u133_plus_2",
-    "ensembl_gene_id",
-    "gene_biotype",
-    "external_gene_name",
-    "description"),
-  filter = "affy_hg_u133_plus_2",
-  values = id_to_annotate,
-  uniqueRows=TRUE)
+#mart <- useMart("ENSEMBL_MART_ENSEMBL")
+#mart <- useDataset("hsapiens_gene_ensembl", mart)
+#annotLookup <- getBM(
+#  mart = mart,
+#  attributes = c(
+#    "affy_hg_u133_plus_2",
+#    "ensembl_gene_id",
+#    "gene_biotype",
+#    "external_gene_name",
+#    "description"),
+#  filter = "affy_hg_u133_plus_2",
+#  values = id_to_annotate,
+#  uniqueRows=TRUE)
+```
+
+```{r}
+#saveRDS(annotLookup, file = "output/annotLookup.rds")
+
+# load the local copy to use when biomaRt is unavailable
+annotLookup <- readRDS("output/annotLookup.rds")
 ```
 
 ```{r}
@@ -142,6 +152,7 @@ head(annotLookup)
 indicesLookup <- match(rownames(gse@assayData[["exprs"]]), annotLookup$affy_hg_u133_plus_2)
 #head(annotLookup[indicesLookup, "external_gene_name"])
 ```
+
 ```{r}
 dftmp <- data.frame(rownames(gse@assayData[["exprs"]]), 
                     annotLookup[indicesLookup, 
@@ -158,6 +169,7 @@ table(dftmp[,1] == dftmp[,2])
 ```
 
 ## Explore the groups in the dataset
+
 ```{r plot groups, warning=FALSE}
 p <- ggplot(metadata, aes(x=disease.state.ch1, fill=specimen.ch1))+
   geom_bar()+
@@ -165,6 +177,7 @@ p <- ggplot(metadata, aes(x=disease.state.ch1, fill=specimen.ch1))+
 p + labs(x = "Group") 
 
 ```
+
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/01_plot_groups.pdf")
@@ -175,13 +188,12 @@ p + labs(x = "Group")
 dev.off()
 ```
 
-
 ```{r, include=FALSE}
 head(metadata)
 ```
 
-
 # Exploratory analysis
+
 ```{r}
 # show what we have:
 show(gse)
@@ -225,10 +237,9 @@ metadata$description
 # contains case number
 ```
 
-
 ## Pre-processing
 
-```{r boxplot original data, warning=FALSE}
+```{r boxplot original data, warning=FALSE, fig.cap="Boxplot of the data before normalization"}
 # Analyze value distributions
 boxplot(ex, main = 'Boxplot of the data before normalization',
         xlab = "Samples",
@@ -272,10 +283,10 @@ dev.off()
 
 From the boxplot after the log transformation, I can see that there is some variation in the median of the samples. So, one of the simplest normalization strategies is to align the log values so that all channels have the same median. A convenient choice is zero so that positive or negative values reflect signals above or below the median for a particular channel.
 
-```{r}
+```{r, fig.cap="Boxplot of the data after normalization"}
 normalized.log.ex=scale(log(ex))
 
-# boxplot post median normalization on ex
+# boxplot post median normalization 
 boxplot(normalized.log.ex, 
         main = 'Boxplot of the data after median normalization',
         xlab = "Samples",
@@ -283,20 +294,21 @@ boxplot(normalized.log.ex,
 ```
 
 ## PCA
-PCA is a dimensionality reduction technique that allows to condense thousands of dimensions into just two or three.For the dataset's samples, the PCA scores display the coordinates in relation to these additional dimensions. 
+
+PCA is a dimensionality reduction technique that allows to condense thousands of dimensions into just two or three.For the dataset's samples, the PCA scores display the coordinates in relation to these additional dimensions.
 
 ```{r pca}
 pca <- prcomp(t(normalized.log.ex))
 
 summary(pca)
-screeplot(pca)
+#screeplot(pca)
 ```
 
 To get the summary of the PCA and the plot showing the variance explained by the first 10 components, it is possible to use the functions commented in the chunks above.
 
 However, using `ggplot2` and `factoextra` packages is possible to get a more concise and informative plot reporting the same information.
 
-```{r variance explained by pca}
+```{r variance explained by pca, fig.cap="Scree Plot"}
 pcaVar <- get_eig(pca)
 pcaVar <- pcaVar$variance.percent[1:10]
 screeDf <- data.frame("Dimensions" = as.factor(seq(1,10)),
@@ -323,7 +335,7 @@ The scree plot shows that the first dimensions on the left are the more importan
 
 Let's try to plot the PCA, looking if we can see a separation between Control and Breast Cancer groups.
 
-```{r PCA for components 1 and 2 control VS Breast cancer without labels}
+```{r PCA for components 1 and 2 control VS Breast cancer without labels, fig.cap="PCA analysis of 2 components showing breast cancer and control samples."}
 # draw PCA plot control VS breast cancer
 group <- c(rep("cadetblue1",18), rep("red",18), rep("cadetblue1",6) ) 
 plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
@@ -373,7 +385,7 @@ Let's try to add the control subtypes. The vector group used in the PCA plot is 
 
 -   **Purple**: histologically normal breast epithelium (NlEpi) from prophylactic mastectomy patient samples
 
-```{r PCA for components 1 and 2 control subtypes without labels}
+```{r PCA for components 1 and 2 control subtypes without labels, fig.cap="PCA analysis of 2 components showing breast cancer and the two subtypes of control samples."}
 # draw PCA plot
 group <- c(rep("cadetblue1",18), rep("red",18), rep("purple",6) ) # vector of colors based on the order of my data
 plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
@@ -415,7 +427,8 @@ dev.off()
 ```
 
 Then, I try to see if there is a separation also inside different types of Breast Cancer.
-```{r pca with all subtypes without labels}
+
+```{r pca with all subtypes without labels, fig.cap="PCA analysis of 2 components, showing all samples specimen."}
 # draw PCA plot with all subtypes
 group <- c(rep(my_colors[7],18), rep(my_colors[4],9), rep(my_colors[1],9), rep(my_colors[6],6) ) # vector of colors based on the order of my data
 plot(pca$x[,1], pca$x[,2], xlab="PCA1", ylab="PCA2", main="PCA for components 1 and 2", type="p", pch=10, col=group)
@@ -458,6 +471,7 @@ dev.off()
 ```
 
 ### Interactive PCA plot
+
 Let's try to explore an interactive PCA plot.
 
 ```{r fig1 interactive PCA plot, message=FALSE}
@@ -479,7 +493,6 @@ fig2 <- plot_ly(components, x=~PC1, y=~PC2, z=~PC3,
 fig2
 ```
 
-
 ```{r fig3 interactive PCA plot, message=FALSE}
 fig3 <- plot_ly(components, x=~PC1, y=~PC3, 
                 color=type, colors=c('cadetblue1', 'red','purple'),
@@ -487,7 +500,9 @@ fig3 <- plot_ly(components, x=~PC1, y=~PC3,
 fig3
 ```
 
-```{r}
+## UMAP
+
+```{r, fig.cap="2D UMAP"}
 set.seed(123)  
 umap_result <- umap(t(normalized.log.ex))
 
@@ -521,97 +536,147 @@ dev.off()
 ```
 
 # Clustering
+
 ## K-means
-```{r K-means}
+
+K-means is an unsupervised method that relies on the tuning parameter $k$ (number of resulting clusters). This method is sensitive to outliers, so it is used for a first exploratory analysis. 
+
+### k=2 
+Let's try to compute K-means by setting $k=2$, since we know that there are 2 groups: breast cancer and control.
+
+```{r K-means with 2 clusters}
 set.seed(1)
 k <- 2 # number of clusters
 
-kmeans_result <- kmeans(t(normalized.log.ex),k)
-table(kmeans_result$cluster) # tells how many samples were assigned to each cluster
+kmeans_result2 <- kmeans(t(normalized.log.ex),k)
+table(kmeans_result2$cluster) # tells how many samples were assigned to each cluster
 ```
 
-```{r plot kmeans, include=FALSE}
+The results are plotted with a PCA for a better visualization.
+
+```{r, fig.cap="K-means clustering of PCA components 1 and 2 breast cancer and control samples."}
+# Create a data frame for plotting
+cluster_df_k2 <- data.frame(
+  PC1 = pca$x[,1], 
+  PC2 = pca$x[,2],
+  Cluster = as.factor(kmeans_result2$cluster), # Cluster from K-means
+  Disease = metadata$disease.state.ch1 # Disease state (Breast cancer or not)
+)
+
+enhanced_colors <- c("#1f77b4", "#ff7f0e")
+
+ggplot(cluster_df_k2, aes(x = PC1, y = PC2, color = Cluster, shape = Disease)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_color_manual(values = enhanced_colors) +  # Color code for clusters
+  scale_shape_manual(values = c(16, 17)) +  # Shape code for disease state 
+  labs(title = "K-means Clustering of PCA Components",
+       x = "PCA1", y = "PCA2",
+       color = "Cluster", shape = "Disease State") +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+```{r plot kmeans 2 clusters, include=FALSE}
 # save plot as pdf
-pdf("plots/12_kmeans_2_labels.pdf")
-plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=colnames(ex)),hjust=0,vjust=0)
-```
-
-```{r plot kmeans with metadata title}
-plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$disease.state.ch1),hjust=0,vjust=0)
-```
-
-```{r, include=FALSE}
-# save plot as pdf
-pdf("plots/13_kmeans_2_metadata_title.pdf")
-plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$disease.state.ch1),hjust=0,vjust=0)
+pdf("plots/13_kmeans_2clusters.pdf")
+ggplot(cluster_df_k2, aes(x = PC1, y = PC2, color = Cluster, shape = Disease)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_color_manual(values = enhanced_colors) +  # Color code for clusters
+  scale_shape_manual(values = c(16, 17)) +  # Shape code for disease state 
+  labs(title = "K-means Clustering of PCA Components",
+       x = "PCA1", y = "PCA2",
+       color = "Cluster", shape = "Disease State") +
+  theme_minimal() +
+  theme(legend.position = "top")
 dev.off()
 ```
 
-```{r cluster plot kmeans 2 clusters}
-fviz_cluster(kmeans_result, data = t(normalized.log.ex),
-              palette = c("#FF6666", "#33cccc"), 
-             geom = "point",
-             ellipse.type = "convex", 
-             ggtheme = theme_bw()
-             )
-```
-```{r, include=FALSE}
-# save plot as pdf
-pdf("plots/14_kmeans_2_cluster_plot.pdf")
-fviz_cluster(kmeans_result, data = t(normalized.log.ex),
-              palette = c("#FF6666", "#33cccc"), 
-             geom = "point",
-             ellipse.type = "convex", 
-             ggtheme = theme_bw()
-             )
-dev.off()
-```
-
-Let's try increasing the number of clusters.
 ```{r}
+## Create list with the predictions
+pred_k <- kmeans_result2$cluster
+pred_k[which(pred_k==1)] <- "control"
+pred_k[which(pred_k==2)] <- "breast cancer"
+pred_k <- factor(pred_k,levels = c("control", "breast cancer"))
+
+true_labels <- ifelse(metadata$disease.state.ch1 == "breast cancer", 1, 0)
+pred_labels <- ifelse(pred_k == "breast cancer", 1, 0)
+
+table(true_labels)
+table(pred_labels)
+
+# Compute ROC
+roc_k <- roc(response = true_labels, predictor = pred_labels)
+auc_k <- auc(roc_k)
+
+## Accuracy
+acc_k <- mean(pred_k==metadata$disease.state.ch1)
+
+## Crete dataframe to store the accuracy results
+res_df <- data.frame(Kmeans = c(acc_k, auc_k))
+rownames(res_df) <- c("Accuracy", "AUC")
+```
+
+```{r roc curve kmeans, fig.cap="ROC curve K-means"}
+plot(roc_k, main = paste("ROC Curve (AUC =", round(auc_k, 3), ")"), col = "#d62728", lwd = 2)
+abline(a = 0, b = 1, lty = 2, col = "gray")
+```
+
+### k=4
+
+Let's try to increase the number of clusters to 4, as we know that there are 4 subtypes. The *control* group contains both Reduction mammoplasty (RM) breast epithelium samples and histologically normal breast epithelium (NlEpi) from prophylactic mastectomy patient samples; while the *breast cancer* group contains histologically normal (HN) epithelial samples from breast cancer patient both with ER+ and ER-.
+
+```{r K-means with 4 clusters}
+# K-means clustering with k = 4
 set.seed(1)
-k <- 4 # number of clusters
-
-kmeans_result <- kmeans(t(normalized.log.ex),k)
-table(kmeans_result$cluster) # tells how many samples were assigned to each cluster
+k <- 4  # Number of clusters
+kmeans_result_k4 <- kmeans(t(normalized.log.ex), k)
+table(kmeans_result_k4$cluster)
 ```
 
-```{r plot kmeans with metadata specimen}
-plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$specimen.ch1),hjust=0,vjust=0)
+```{r, fig.cap="K-means clustering of PCA components 1 and 2 with k=4."}
+# Create a data frame for plotting
+cluster_df_k4 <- data.frame(
+  PC1 = pca$x[,1], 
+  PC2 = pca$x[,2], 
+  Cluster = as.factor(kmeans_result_k4$cluster), # Cluster from K-means
+  Disease = metadata$disease.state.ch1, # Disease state (Breast cancer or not)
+  Specimen = metadata$specimen.ch1  # Specimen type (e.g., control, cancer)
+)
+
+enhanced_colors <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728") 
+shape_values <- c(15, 16, 17, 18)  # Square, Circle, Triangle, Diamond
+
+ggplot(cluster_df_k4, aes(x = PC1, y = PC2, color = Cluster, shape = Specimen)) +
+  geom_point(size = 4, alpha = 0.8) +  
+  scale_color_manual(values = enhanced_colors) +  
+  scale_shape_manual(values = shape_values) +  # Different shapes for specimen types
+  labs(title = "K-means Clustering of PCA Components (k=4)",
+       x = "PCA1", y = "PCA2",
+       color = "Cluster", shape = "Specimen Type") +
+  theme_minimal() +
+  theme(legend.position = "top")
 ```
 
-```{r, include=FALSE}
+```{r plot kmeans 4 clusters, include=FALSE}
 # save plot as pdf
-pdf("plots/15_kmeans_4_metadata_title.pdf")
-plot(kmeans_result, data=t(normalized.log.ex)) + geom_text(aes(label=metadata$specimen.ch1),hjust=0,vjust=0)
-dev.off()
-```
-
-```{r cluster plot kmeans 4 clusters}
-fviz_cluster(kmeans_result, data = t(normalized.log.ex),
-             palette = c("#FF6666", "#99C666", "#33cccc", "#cc66ff"), 
-             geom = "point",
-             ellipse.type = "convex", 
-             ggtheme = theme_bw()
-             )
-```
-
-```{r, include=FALSE}
-# save plot as pdf
-pdf("plots/16_kmeans_4_cluster_plot.pdf")
-fviz_cluster(kmeans_result, data = t(normalized.log.ex),
-             palette = c("#FF6666", "#99C666", "#33cccc", "#cc66ff"), 
-             geom = "point",
-             ellipse.type = "convex", 
-             ggtheme = theme_bw()
-             )
+pdf("plots/14_kmeans_4clusters.pdf")
+ggplot(cluster_df_k4, aes(x = PC1, y = PC2, color = Cluster, shape = Specimen)) +
+  geom_point(size = 4, alpha = 0.8) +  
+  scale_color_manual(values = enhanced_colors) +  
+  scale_shape_manual(values = shape_values) +  # Different shapes for specimen types
+  labs(title = "K-means Clustering of PCA Components (k=4)",
+       x = "PCA1", y = "PCA2",
+       color = "Cluster", shape = "Specimen Type") +
+  theme_minimal() +
+  theme(legend.position = "top")
 dev.off()
 ```
 
 ## Hierarchical
 
+Hierarchical clustering produces a dendrogram. At each step a distance matrix is computed and the points with the lower distance are clustered together. Then, the distance matrix is recomputed considering the new cluster as one point. In the end, the tree is cut to have the chosen number of clusters.
 
-```{r determine optimal number of cluster}
+```{r determine optimal number of cluster, include=FALSE}
 # Elbow method
 fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "wss") 
 ## seems setting number of clusters equal to 2
@@ -624,11 +689,12 @@ fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "wss")
 dev.off()
 ```
 
-```{r}
+```{r, include=FALSE}
 # Silhouette method
 fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "silhouette")
 ## seems setting number of clusters equal to 2
 ```
+
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/18_Silhouette_plot.pdf")
@@ -636,15 +702,16 @@ fviz_nbclust(t(normalized.log.ex), FUN = hcut, method = "silhouette")
 dev.off()
 ```
 
-We use the Gap statistic to calculate the goodness of clustering.
-```{r}
+```{r, include=FALSE}
 # Gap Statistic Method
+# We use the Gap statistic to calculate the goodness of clustering.
 gap_stat <- clusGap(t(normalized.log.ex), FUN = hcut, nstart = 25, K.max = 10, B = 50)
 # K.max -> the maximum number of clusters to consider
 # B -> number of Monte Carlo samples
 
 fviz_gap_stat(gap_stat)
 ```
+
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/19_Gap_plot.pdf")
@@ -652,24 +719,148 @@ fviz_gap_stat(gap_stat)
 dev.off()
 ```
 
+For this clustering method, distance between samples and between clusters must be computed. In this case, sample distances are computed with the *Euclidean* method, and the cluster distances with *average linkage*.
 
-```{r}
-hc_result <- dist(t(normalized.log.ex)) %>% hclust(method = "ave")
-hc_result2<- dist(t(normalized.log.ex), method="euclidean") %>% hclust( method = "complete") 
-hc_result3 <- dist(t(normalized.log.ex)) %>% hclust(method = 'single')
+```{r hc, warning=FALSE, fig.cap="Hierarchical clustering dendrogram. The sample distances are computed with Euclidean distance, while the cluster distance with average linkage."}
+dist_matrix <- dist(t(normalized.log.ex), method = "euclidean")
+hc <- hclust(dist_matrix, method = "average")
+
+tree <- as.phylo(hc)
+
+k_hc <- 2
+hclusters <- cutree(hc, k = k_hc)
+cluster_df <- data.frame(
+  sample = names(hclusters),
+  cluster = factor(hclusters)
+)
+
+annot <- data.frame(
+  sample = colnames(normalized.log.ex),  # samples are columns
+  disease = metadata$disease.state.ch1,
+  specimen = metadata$specimen.ch1
+)
+
+tip_data <- merge(cluster_df, annot, by.x = "sample", by.y = "sample")
+
+# Plot with samples' name
+ggtree(tree, layout = "rectangular", branch.length = "none") %<+% annot +
+  # Tip points colored by disease, shaped by specimen
+  geom_tippoint(aes(color = disease, shape = specimen), size = 2) +
+  scale_color_manual(values = c("control" = "#1b9e77", "breast cancer" = "#d95f02")) +
+  scale_shape_manual(values = c(
+    "Reduction Mammoplasty" = 15,
+    "ER+ Breast Cancer" = 16,
+    "ER- Breast Cancer" = 17,
+    "Prophylactic Mastectomy" = 18
+  )) +
+  geom_tiplab(size = 1.7, angle = 85, hjust = 0.5, offset=-0.5)+ # name samples
+  theme_tree2() +
+  coord_flip() + scale_x_reverse() +  
+  ggtitle("Hierarchical Clustering Dendrogram") +
+  theme(legend.position = "right")
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/15_Hierarchical_sample_name.pdf")
+# Plot with samples' name
+ggtree(tree, layout = "rectangular", branch.length = "none") %<+% annot +
+  # Tip points colored by disease, shaped by specimen
+  geom_tippoint(aes(color = disease, shape = specimen), size = 2) +
+  scale_color_manual(values = c("control" = "#1b9e77", "breast cancer" = "#d95f02")) +
+  scale_shape_manual(values = c(
+    "Reduction Mammoplasty" = 15,
+    "ER+ Breast Cancer" = 16,
+    "ER- Breast Cancer" = 17,
+    "Prophylactic Mastectomy" = 18
+  )) +
+  geom_tiplab(size = 1.7, angle = 85, hjust = 0.5, offset=-0.5)+ # name samples
+  theme_tree2() +
+  coord_flip() + scale_x_reverse() +  
+  ggtitle("Hierarchical Clustering Dendrogram") +
+  theme(legend.position = "right")
+dev.off()
+```
+
+```{r, fig.cap="Hierarchical clustering dendrogram without samples' labels. The sample distances are computed with Euclidean distance, while the cluster distance with average linkage."}
+# Plot without samples' name
+ggtree(tree, layout = "rectangular", branch.length = "none") %<+% annot +
+  # Tip points colored by disease, shaped by specimen
+  geom_tippoint(aes(color = disease, shape = specimen), size = 2) +
+  scale_color_manual(values = c("control" = "#1b9e77", "breast cancer" = "#d95f02")) +
+  scale_shape_manual(values = c(
+    "Reduction Mammoplasty" = 15,
+    "ER+ Breast Cancer" = 16,
+    "ER- Breast Cancer" = 17,
+    "Prophylactic Mastectomy" = 18
+  )) +
+  #geom_tiplab(size = 1.7, angle = 85, hjust = 0.5, offset=-0.5)+ # name samples
+  theme_tree2() +
+  coord_flip() + scale_x_reverse() +  
+  ggtitle("Hierarchical Clustering Dendrogram") +
+  theme(legend.position = "right")
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/16_Hierarchical_NO_sample_name.pdf")
+# Plot without samples' name
+ggtree(tree, layout = "rectangular", branch.length = "none") %<+% annot +
+  # Tip points colored by disease, shaped by specimen
+  geom_tippoint(aes(color = disease, shape = specimen), size = 2) +
+  scale_color_manual(values = c("control" = "#1b9e77", "breast cancer" = "#d95f02")) +
+  scale_shape_manual(values = c(
+    "Reduction Mammoplasty" = 15,
+    "ER+ Breast Cancer" = 16,
+    "ER- Breast Cancer" = 17,
+    "Prophylactic Mastectomy" = 18
+  )) +
+  #geom_tiplab(size = 1.7, angle = 85, hjust = 0.5, offset=-0.5)+ # name samples
+  theme_tree2() +
+  coord_flip() + scale_x_reverse() +  
+  ggtitle("Hierarchical Clustering Dendrogram") +
+  theme(legend.position = "right")
+dev.off()
+```
+
+```{r accuracy hc}
+# Predictions (label clusters as "control" and "breast cancer")
+pred_h <- hclusters
+
+cluster1_majority <- names(which.max(table(pred_h[metadata$disease.state.ch1 == "control"])))
+pred_h <- ifelse(hclusters == as.numeric(cluster1_majority), "control", "breast cancer")
+pred_h <- factor(pred_h, levels = c("control", "breast cancer"))
+
+# Accuracy
+acc_h <- mean(pred_h == metadata$disease.state.ch1)
+
+# AUC from ROC curve
+true_labels_h <- ifelse(metadata$disease.state.ch1 == "breast cancer", 1, 0)
+pred_labels_h <- ifelse(pred_h == "breast cancer", 1, 0)
+roc_h <- roc(response = true_labels_h, predictor = pred_labels_h)
+auc_h <- auc(roc_h)
+
+# Update results table
+res_df["Hierarchical"] <- c(acc_h, auc_h)
+```
+
+```{r, include=FALSE}
+dist_matrix <- dist(t(normalized.log.ex), method = "euclidean")
+hc_result <- hclust(dist_matrix, method = "average")
+hc_result2 <- hclust(dist_matrix, method = "complete")
+hc_result3 <- hclust(dist_matrix, method = "single")
 
 k_hc <- 2 # optimal number of clusters
 
 groups <- cutree(hc_result, k=k_hc)
 table(groups,type)
 
-groups2<-cutree(hc_result2, k=k_hc)
+groups2 <- cutree(hc_result2, k=k_hc)
 table(groups2,type)
 
-groups3 <- cutree(hc_result3,k=k_hc)
+groups3 <- cutree(hc_result3, k=k_hc)
 table(groups3,type)
-```
-```{r}
+
 # Set up layout with extra space below the plot
 par(mar = c(6, 4, 4, 2))   # increase bottom margin
 par(xpd = TRUE)            # allow text outside plot region
@@ -689,7 +880,7 @@ text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
      cex = 0.8, adj = 0.5)
 ```
 
-```{r}
+```{r, include=FALSE}
 # Set up layout with extra space below the plot
 par(mar = c(6, 4, 4, 2))   # increase bottom margin
 par(xpd = TRUE)            # allow text outside plot region
@@ -709,7 +900,7 @@ text(x = mean(par("usr")[1:2]), y = par("usr")[3] - 10,
      cex = 0.8, adj = 0.5)
 ```
 
-```{r}
+```{r, include=FALSE}
 # Set up layout with extra space below the plot
 par(mar = c(6, 4, 4, 2))   # increase bottom margin
 par(xpd = TRUE)            # allow text outside plot region
@@ -800,11 +991,33 @@ dev.off()
 
 ## Random forest
 
-```{r plot random forest error rate vs number of trees}
+Supervised methods require the data to be divided into a training and a test set.
+
+```{r}
+set.seed(1)
+# Extract expression data 
+expr_data <- t(normalized.log.ex)  # samples are rows
+labels <- metadata$disease.state.ch1  # A factor with "control" and "breast cancer"
+
+# 70% train, 30% test
+train_index <- createDataPartition(labels, p = 0.7, list = FALSE)
+
+# Split data
+train_data <- expr_data[train_index, ]
+test_data  <- expr_data[-train_index, ]
+
+train_labels <- labels[train_index]
+test_labels  <- labels[-train_index]
+```
+
+Random forest requires the tuning of 2 parameters: `ntree` and the `mtry`. The first is the number of trees to grow and the second is the number of features (genes) considered when building each tree. The best parameters are chosen comparing OOB errors of random forests fitted with different values of the two parameters.
+
+```{r plot random forest error rate vs number of trees, fig.cap="Plot showing how the error rate changes according to the number of trees."}
 set.seed(1234)
-rf <- randomForest(x=t(normalized.log.ex), y=as.factor(type), ntree=1000)
+rf <- randomForest(x=train_data, y=as.factor(train_labels), ntree = 600)
 plot(rf, main = "Random Forest")
 ```
+
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/23_RF_Error_rate_VS_n_trees.pdf")
@@ -812,20 +1025,71 @@ plot(rf, main = "Random Forest")
 dev.off()
 ```
 
-The plot above shows how the error rate changes according to the number of trees. This allows to track how model accuracy improves (or doesn't) as more trees are added.
-The black line represent the overall OOB (out-of-bag) error rate, while the other colored lines report the class specific error rates.
+The plot above shows how the error rate changes according to the number of trees. This allows to track how model accuracy improves (or doesn't) as more trees are added. The black line represent the overall OOB (out-of-bag) error rate, while the other colored lines report the class specific error rates. From the plot, we can see that a plateau in the OOB error is reached with a number of trees around 520.
 
-```{r, include=FALSE}
-tail(plot(rf))
+```{r mtry}
+control <- trainControl(method='cv', 
+                        search='grid')
+
+mtry <- ncol(train_data)
+tunegrid <- expand.grid(mtry = seq(1, min(50, mtry), by = 5))
+
+rf_gridsearch <- train(x=train_data, y=train_labels,
+                       method = 'rf',
+                       ntree=520,
+                       metric = 'Accuracy',
+                       tuneGrid = tunegrid,
+                       trControl = control)
+
+mtry <- rf_gridsearch$bestTune$mtry
 ```
 
+The best mtry results to be 41. So, a model is built on the training set with these parameters and then evaluated on the test set.
+
+```{r rf}
+set.seed(1)
+
+tunegrid <- expand.grid(.mtry=c(mtry))
+rf <- train(x=train_data, y=train_labels,
+             method = 'rf',
+             ntree=520,
+             metric = 'Accuracy',
+             tuneGrid = tunegrid,
+             trControl = control)
+```
+
+```{r rf_pred}
+set.seed(1)
+
+## Apply it on the test set
+pred_rf <- predict(rf, test_data)
+
+## Accuracy
+acc_rf <- mean(pred_rf==test_labels)
+## Confusion matrix
+table(pred_rf, test_labels)
+
+## AUC from ROC curve
+prob_rf <- predict(rf, test_data, type = "prob")
+roc_rf <- roc(test_labels, prob_rf$control)
+# plot(roc_rf)
+auc_rf <- auc(roc_rf)
+
+## Update df
+res_df["RandomForest"] <- c(acc_rf, auc_rf)
+```
+
+```{r roc rf, include=FALSE}
+plot(roc_rf)
+```
 
 ```{r}
-# a trivial test
-predict(rf, t(normalized.log.ex[, 1:5]))
+rf <- randomForest(x=train_data, y=as.factor(train_labels), ntree = 520, mtry=mtry)
 ```
 
-```{r top 30 features random forest}
+### Feature selection
+
+```{r top 30 features random forest, fig.cap="The plot shows the top 30 important variable according to random forest. The missing gene on the y-axis correspond to 221713_s_at. It is empty because it does not have a corresponding external gene name found in the annotation of biomaRt."}
 # Get importance values
 rf_importance <- importance(rf)
 # Extract probe IDs in order of importance
@@ -849,6 +1113,32 @@ ggplot(imp_df, aes(x = reorder(gene, importance), y = importance)) +
   theme_minimal(base_size = 12)
 ```
 
+```{r, fig.cap="Plot showing how the expression of the top 30 genes changes in breast cancer and in the control."}
+expr_data_t <- t(expr_data)
+top_expr <- expr_data_t[top_vars, , drop = FALSE]  # rows = probes, cols = samples
+
+top_expr_df <- as.data.frame(top_expr)
+top_expr_df$probe <- rownames(top_expr_df)
+
+top_expr_long <- melt(top_expr_df, id.vars = "probe", variable.name = "sample", value.name = "expression")
+
+# Add disease info
+top_expr_long$disease <- metadata$disease.state.ch1[match(top_expr_long$sample, metadata$geo_accession)]
+
+# map probes to gene symbols
+top_expr_long$gene <- ifelse(top_expr_long$probe %in% names(probe_symbols),
+                             probe_symbols[top_expr_long$probe],
+                             top_expr_long$probe)
+
+ggplot(top_expr_long, aes(x = disease, y = expression, fill = disease)) +
+  geom_boxplot(outlier.shape = NA) +
+  facet_wrap(~ gene, scales = "free_y", ncol = 5) +
+  theme_minimal(base_size = 12) +
+  labs(title = "Expression of Top 30 Genes by Disease State",
+       x = "Disease State", y = "Expression") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/24_RF_Variable_importance_top_30.pdf")
@@ -868,10 +1158,9 @@ imp_df
 write.csv(imp_df, file = "output/rf_top_variable_importance.csv", row.names = FALSE)
 ```
 
-
 ## Heatmap
 
-```{r heatmap}
+```{r heatmap, fig.cap="Heatmap of the most significant genes according to random forest."}
 # Select top N important probes
 top_n <- 30  
 top_probes <- imp_df$probe[1:top_n]
@@ -907,7 +1196,7 @@ pheatmap(heatmap_data,
 dev.off()
 ```
 
-```{r heatmap with specimen}
+```{r heatmap with specimen, fig.cap="Heatmap of the most significant genes according to random forest, showing the specimen."}
 # Ensure sample labels are aligned with expression data
 sample_types <- metadata$type
 names(sample_types) <- colnames(normalized.log.ex)
@@ -936,6 +1225,7 @@ pheatmap(heatmap_data,
          show_colnames = TRUE,
          main = "Heatmap Top Random Forest Genes by Specimen")
 ```
+
 ```{r, include=FALSE}
 # save plot as pdf
 pdf("plots/26_Heatmap_top_30_with_specimen.pdf")
@@ -948,81 +1238,405 @@ pheatmap(heatmap_data,
 dev.off()
 ```
 
-## Feature selection
-
-### LDA
+## LDA
 
 ```{r}
-# samples as rows, genes as columns
-lda_data <- t(heatmap_data)
-colnames(lda_data) <- make.names(colnames(lda_data), unique = TRUE)
+# Convert group labels to factor
+group_factor <- as.factor(metadata$disease.state.ch1)
 
-# Use disease state or source name as grouping
-group <- metadata[colnames(heatmap_data), "specimen.ch1"]
-group <- factor(group)
+# Perform t-tests
+ttest <- genefilter::rowttests(as.matrix(t(expr_data)), group_factor)
+ttest <- which(p.adjust(ttest$p.value)<0.1)
 
-lda_model <- lda(group ~ ., data = as.data.frame(lda_data))
-# Inspect coefficients and proportions
-lda_model
+## Reduce the original dataset
+ttest_data <- expr_data[,ttest]
+#dim(ttest_data) #42 2
+ttest_train <- ttest_data[train_index, ]
+#dim(ttest_train) #30 2
+```
+
+```{r lda}
+set.seed(1)
+
+## Fit the model with cv
+control <- trainControl(method="cv", number=10)
+lda_fit <- train(ttest_train, train_labels, method="lda", 
+                 metric="Accuracy", trControl=control)
+print(lda_fit)
+
+## Apply it on the test set
+pred_lda <- predict(lda_fit, test_data)
+## Accuracy
+acc_lda <- mean(pred_lda==test_labels)
+
+## AUC from ROC curve
+pred_lda <- predict(lda_fit, test_data, type = "prob")
+roc_lda <- roc(test_labels, pred_lda[,"breast cancer"])
+auc_lda <- auc(roc_lda)
+#plot(roc_rf)
+auc_lda <- auc(roc_lda)
+
+
+## Update results table
+res_df["LDA"] <- c(acc_lda, auc_lda)
+
+#print(lda_fit)
+```
+
+## LASSO
+
+```{r lasso}
+set.seed(1)
+
+## fit Lasso with cv
+control <- trainControl(method="cv", number=10)
+tunegrid <- expand.grid(alpha=1,
+                        lambda=seq(.0001,1,by=.001))
+lasso_fit <- train(train_data, train_labels, method="glmnet", family="binomial", 
+                 tuneGrid = tunegrid,
+                 metric="Accuracy", trControl=control)
+#print(lasso_fit)
+
+# Apply it on the test set
+pred_lasso <- predict(lasso_fit, test_data)
+
+## Accuracy
+acc_lasso <- mean(pred_lasso==test_labels)
+
+pred_lasso <- predict(lasso_fit, test_data, type = "prob")
+roc_lasso <- roc(test_labels, pred_lasso[,"breast cancer"])
+auc_lasso <- auc(roc_lasso)
+
+
+## Update results table
+res_df["Lasso"] <- c(acc_lasso, auc_lasso)
+
+```
+
+```{r, fig.cap="Plot showing how LASSO accuracy changes according to the lambda parameter chosen."}
+results <- lasso_fit$results
+
+ggplot(results, aes(x = lambda, y = Accuracy)) +
+  geom_line(color = "steelblue") +
+  geom_point(color = "darkred") +
+  labs(title = "Lasso: Accuracy vs. Lambda",
+       x = expression(lambda),
+       y = "Accuracy") +
+  theme_minimal()
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/27_LASSO_Lambda_VS_accuracy.pdf")
+ggplot(results, aes(x = lambda, y = Accuracy)) +
+  geom_line(color = "steelblue") +
+  geom_point(color = "darkred") +
+  labs(title = "Lasso: Accuracy vs. Lambda",
+       x = expression(lambda),
+       y = "Accuracy") +
+  theme_minimal()
+dev.off()
 ```
 
 ```{r}
-lda_pred <- predict(lda_model)
+best_lambda <- lasso_fit$bestTune$lambda
+print(best_lambda)
+```
 
-# Get coordinates of samples in LDA space
-lda_df <- data.frame(lda_pred$x)
-lda_df$Group <- group
+## SCUDO
 
-ggplot(lda_df, aes(x = LD1, y = LD2, color = Group)) +
-  geom_point(size = 3) +
+The goal of this method is to avoid batch effects and obtain a method that is repeatable and reproducible.
+
+This method compares signatures of different individuals. Each signature is sorted for the expression value. The most important genes for each signature are the most and the less expressed. Then signatures are compared and a map is constructed, where clusters can be seen if they are closely connected.
+
+```{r scudo, fig.cap="SCUDO network"}
+set.seed(1)
+## Apply SCUDO on the training set
+scudo_train <- scudoTrain(t(train_data), groups = as.factor(train_labels),
+                          nTop = 25, nBottom = 25, alpha = 0.05)
+scudo_train
+
+## perform validation using testing samples
+scudo_test <- scudoTest(scudo_train, t(test_data), as.factor(test_labels),
+                        nTop = 25, nBottom = 25)
+
+## Plot the results
+testNet <- scudoNetwork(scudo_test, N = 0.2)
+scudoPlot(testNet, vertex.label = NA)
+
+## Classification
+pred_scudo <- scudoClassify(t(train_data), t(test_data),
+                            nTop = 25, nBottom = 25, N = 0.2,
+                            trainGroups = as.factor(train_labels),
+                            featureSel = FALSE)
+## Accuracy
+acc_scudo <- mean(pred_scudo$predicted==test_labels)
+
+## AUC from ROC curve
+roc_scudo <- roc(test_labels, pred_scudo$scores[,2])
+# plot(roc_rf)
+auc_scudo <- auc(roc_scudo)
+
+## Update results table
+res_df["Scudo"] <- c(acc_scudo, auc_scudo)
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/28_SCUDO.pdf")
+scudoPlot(testNet, vertex.label = NA)
+dev.off()
+```
+
+# Model comparison
+
+The models fitted before are compared by accuracy and AUC.
+
+```{r, fig.cap="Comparison of the models' performances."}
+res_df <- as.data.frame(res_df)
+res_df$metric <- rownames(res_df)
+
+res_long <- pivot_longer(res_df, 
+                         cols = -metric, 
+                         names_to = "Model", 
+                         values_to = "Value")
+#order models by AUC
+res_long$Model <- factor(res_long$Model,
+                         levels = res_long %>%
+                           filter(metric == "AUC") %>%
+                           arrange(desc(Value)) %>%
+                           pull(Model))
+
+# Plot with value labels
+ggplot(res_long, aes(x = Model, y = Value, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_text(aes(label = round(Value, 2)),
+            position = position_dodge(width = 0.9),
+            vjust = -0.3, size = 3) +
+  scale_fill_manual(values = c("Accuracy" = "#1b9e77", "AUC" = "#d95f02")) +
+  labs(title = "Model Performance: Accuracy vs AUC",
+       x = "Model",
+       y = "Metric Value",
+       fill = "Metric") +
+  ylim(0, 1.1) +  # add a little headroom for the labels
   theme_minimal() +
-  labs(title = "LDA of Top RF Genes", x = "LD1", y = "LD2")
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/29_Model_comparison.pdf")
+ggplot(res_long, aes(x = Model, y = Value, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_text(aes(label = round(Value, 2)),
+            position = position_dodge(width = 0.9),
+            vjust = -0.3, size = 3) +
+  scale_fill_manual(values = c("Accuracy" = "#1b9e77", "AUC" = "#d95f02")) +
+  labs(title = "Model Performance: Accuracy vs AUC",
+       x = "Model",
+       y = "Metric Value",
+       fill = "Metric") +
+  ylim(0, 1.1) +  # add a little headroom for the labels
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+dev.off()
+```
+
+# Functional enrichment analysis
+
+The functional enrichment analysis is performed with `gprofiler2`, with the objective of finding out the molecular functions more represented among the most important genes. For this purpose, the genes with highest importance score according to the random forest model fitted before are considered.
+
+```{r functional enrichment analysis, fig.cap="Results of the functional enrichment analysis"}
+geneList <- head(ordered_probes, 30) 
+gost_res <- gost(query = geneList,
+                organism = "hsapiens", 
+                ordered_query = FALSE, multi_query = FALSE, significant = FALSE, 
+                exclude_iea = FALSE, measure_underrepresentation = FALSE, evcodes = FALSE,
+                user_threshold = 0.05, correction_method = "g_SCS",
+                domain_scope = "annotated", custom_bg = NULL, numeric_ns = "", 
+                sources = NULL, as_short_link = FALSE)
+
+gost_df <- gost_res$result[c("term_id", "term_name", "p_value", "significant")]
+gost_df <- gost_df[order(gost_df$p_value),]
+gost_df <- gost_df[which(gost_df$significant==TRUE),]
+
+# head(gost_df)
+
+# visualize results using a Manhattan plot
+p <- gostplot(gost_res, capped = TRUE, interactive = FALSE)
+publish_gostplot(p, filename = NULL)
+
+publish_gosttable(gost_res, highlight_terms = gost_df$term_id[1:10],
+                  use_colors = TRUE, filename = NULL,
+                  show_columns = c("term_id", "term_name", "p_value"))
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/30_Functional_enrich1.pdf")
+publish_gostplot(p, filename = NULL)
+dev.off()
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/31_Functional_enrich2.pdf")
+publish_gosttable(gost_res, highlight_terms = gost_df$term_id[1:10],
+                  use_colors = TRUE, filename = NULL,
+                  show_columns = c("term_id", "term_name", "p_value"))
+dev.off()
+```
+
+# Network-based Analysis
+
+The network analysis is performed with `pathfindR`, using the *KEGG*, *Gene Ontology* and *Reactome* databases. For this analysis, the 100 genes with the lowest p-value obtained with a t-test are taken into consideration. This list of genes has 23 genes in common with the one of the most important genes used for the functional enrichment.
+
 ```{r}
-table(Predicted = lda_pred$class, Actual = group)
-mean(lda_pred$class == group)  # accuracy
+# Map probe IDs to Ensembl gene IDs
+probe_to_ensembl <- setNames(annotLookup$ensembl_gene_id, annotLookup$affy_hg_u133_plus_2)
+
+new_colnames <- probe_to_ensembl[colnames(expr_data)]
+
+# Warn if there are unmatched probe IDs
+unmatched <- is.na(new_colnames)
+if (any(unmatched)) {
+  warning(sum(unmatched), " probe IDs in expr_data were not found in annotLookup and will be removed.")
+}
+
+expr_data_new <- expr_data[, !unmatched]
+colnames(expr_data_new) <- new_colnames[!unmatched]
+
+# duplicated Ensembl IDs 
+expr_t <- t(expr_data_new)
+expr_df <- data.frame(expr_t, ensembl_id = colnames(expr_data_new))
+collapsed <- aggregate(. ~ ensembl_id, data = expr_df, FUN = mean)
+rownames(collapsed) <- collapsed$ensembl_id
+collapsed$ensembl_id <- NULL
+expr_data_collapsed <- t(collapsed)
+
+# Run t-test across two groups
+tt <- genefilter::rowttests(as.matrix(t(expr_data_collapsed)), group_factor)
+# Sort by p-value
+tt <- tt[order(tt$p.value), ]
+
+# Extract top 100 genes by p-value
+top_n <- 100
+geneList_tt <- data.frame(
+  ENSEMBL = rownames(tt)[1:top_n],
+  p.value = tt$p.value[1:top_n]
+  # p.adjust = p.adjust(tt$p.value[1:top_n]) 
+)
+
+# Remove any trailing version numbers in Ensembl IDs (e.g., ENSG000001234.1 -> ENSG000001234)
+gene_ids_split <- unlist(strsplit(as.character(geneList_tt$ENSEMBL), ".", fixed = TRUE))
+geneList_tt$ENSEMBL <- gene_ids_split[startsWith(gene_ids_split, "ENS")]
+
+
+# Annotate Ensembl IDs with gene symbols
+gene_symbol_df <- bitr(geneList_tt$ENSEMBL,
+                       fromType = "ENSEMBL",
+                       toType = "SYMBOL",
+                       OrgDb = org.Hs.eg.db)
+
+geneList_tt <- merge(gene_symbol_df, geneList_tt)
+
+# dim(geneList_tt) #105   3
+```
+```{r net, echo=TRUE, results='hide'}
+net_KEGG <- run_pathfindR(
+  geneList_tt[c("SYMBOL", "p.value")],
+  iterations = 1,               
+  gene_sets = "KEGG", 
+  silent_option = FALSE
+)
+
+net_GO <- run_pathfindR(
+  geneList_tt[c("SYMBOL", "p.value")],
+  iterations = 1,         
+  gene_sets = "GO-All",
+  silent_option = FALSE
+)
+
+net_Reactome <- run_pathfindR(geneList_tt[c("SYMBOL", "p.value")],
+                          iterations = 1, 
+                          gene_sets = "Reactome", 
+                          silent_option = FALSE)
+```
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/32_Network_analysis.pdf")
+enrichment_chart(net_KEGG)
+dev.off()
 ```
 
-
-```{r}
-# samples as rows, genes as columns
-lda_data <- t(heatmap_data)
-colnames(lda_data) <- make.names(colnames(lda_data), unique = TRUE)
-
-# Use disease state or source name as grouping
-group_disease_state <- metadata[colnames(heatmap_data), "disease.state.ch1"]
-group_disease_state <- factor(group_disease_state)
-
-lda_model_disease_state <- lda(group ~ ., data = as.data.frame(lda_data))
-# Inspect coefficients and proportions
-lda_model_disease_state
-
-levels(group_disease_state)
-
-lda_pred_disease_state <- predict(lda_model_disease_state)
-
-
-# Get the predicted LD1 values
-scores <- lda_pred_disease_state$x[, 1]  # LD1
-true_labels <- group_disease_state       # true classes
-
-# Generate ROC curve
-roc_obj <- roc(response = true_labels, predictor = scores)
-
-# Plot it
-plot(roc_obj, col = "#2E9FDF", lwd = 3, main = "ROC Curve for LDA")
-auc_value <- auc(roc_obj)
-legend("bottomright", legend = paste("AUC =", round(auc_value, 3)), col = "#2E9FDF", lwd = 3)
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/33_Network_analysis.pdf")
+enrichment_chart(net_GO)
+dev.off()
 ```
 
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/34_Network_analysis.pdf")
+enrichment_chart(net_Reactome)
+dev.off()
+```
+```{r net_plot, fig.cap="Results of the biological network analysis"}
+enrichment_chart(net_KEGG)
+enrichment_chart(net_GO)
+enrichment_chart(net_Reactome)
+```
 
+```{r reactome}
+term_gene_graph(net_Reactome, num_terms = 7, use_description = TRUE)
+```
+```{r net kegg}
+term_gene_graph(net_KEGG, num_terms = 7, use_description = TRUE)
+```
 
-### LASSO
+```{r net GO}
+term_gene_graph(net_GO, num_terms = 7, use_description = TRUE)
+```
 
-### SCUDO
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/35_Network_analysis_netReactome.pdf")
+term_gene_graph(net_Reactome, num_terms = 7, use_description = TRUE)
+dev.off()
+```
 
-## Functional enrichment analysis
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/36_Network_analysis_netGO.pdf")
+term_gene_graph(net_GO, num_terms = 7, use_description = TRUE)
+dev.off()
+```
 
-## Network-based Analysis
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/37_Network_analysis_netKEGG.pdf")
+term_gene_graph(net_KEGG, num_terms = 7, use_description = TRUE)
+dev.off()
+```
 
+```{r cluster_reactome}
+## cluster enriched terms
+cluster_enriched_terms(net_Reactome)
+```
 
+```{r cluster_GO}
+## cluster enriched terms
+cluster_enriched_terms(net_GO)
+```
+```{r cluster_KEGG}
+## cluster enriched terms
+cluster_enriched_terms(net_KEGG)
+```
+
+```{r, include=FALSE}
+# save plot as pdf
+pdf("plots/38_Network_analysis_clusterReactome.pdf")
+cluster_enriched_terms(net_Reactome)
+dev.off()
+```
